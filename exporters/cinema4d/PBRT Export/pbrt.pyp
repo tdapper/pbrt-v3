@@ -1290,8 +1290,8 @@ class PbrtThread(c4d.threading.C4DThread):
     def ExecuteRenderer(self, pbrtFilename, imageFilename):
         # call pbrt for rendering
         try:
-            self.pbrtProcess = subprocess.Popen([os.path.join(os.path.dirname(__file__), 'pbrt', 'bin', 'pbrt.exe'), pbrtFilename], cwd=os.path.dirname(pbrtFilename))
-        except subprocess.CalledProcessError as err:
+            self.pbrtProcess = subprocess.Popen([self.exe, pbrtFilename], cwd=os.path.dirname(pbrtFilename))
+        except (subprocess.CalledProcessError, OSError) as err:
             logger.error("Failed to render image: " + str(err))
             return None
         else:
