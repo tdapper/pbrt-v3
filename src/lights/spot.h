@@ -48,8 +48,8 @@
 class SpotLight : public Light {
   public:
     // SpotLight Public Methods
-    SpotLight(const Transform &LightToWorld, const Medium *m, const Spectrum &,
-              Float width, Float fall);
+    SpotLight(const Transform &LightToWorld, const MediumInterface &m,
+              const Spectrum &I, Float totalWidth, Float falloffStart);
     Spectrum Sample_Li(const Interaction &ref, const Point2f &u, Vector3f *wi,
                        Float *pdf, VisibilityTester *vis) const;
     Float Falloff(const Vector3f &w) const;
@@ -64,7 +64,7 @@ class SpotLight : public Light {
   private:
     // SpotLight Private Data
     const Point3f pLight;
-    const Spectrum intensity;
+    const Spectrum I;
     const Float cosTotalWidth, cosFalloffStart;
 };
 

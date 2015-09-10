@@ -143,7 +143,7 @@ static Point3f NURBSEvaluateSurface(int uOrder, const Float *uKnot, int ucp,
 
 std::vector<std::shared_ptr<Shape>> CreateNURBS(const Transform *o2w,
                                                 const Transform *w2o,
-                                                bool ReverseOrientation,
+                                                bool reverseOrientation,
                                                 const ParamSet &params) {
     int nu = params.FindOneInt("nu", -1);
     if (nu == -1) {
@@ -158,7 +158,7 @@ std::vector<std::shared_ptr<Shape>> CreateNURBS(const Transform *o2w,
     }
     int nuknots, nvknots;
     const Float *uknots = params.FindFloat("uknots", &nuknots);
-    if (uknots == nullptr) {
+    if (!uknots) {
         Error("Must provide u knot vector \"uknots\" with NURBS shape.");
         return std::vector<std::shared_ptr<Shape>>();
     }
@@ -187,7 +187,7 @@ std::vector<std::shared_ptr<Shape>> CreateNURBS(const Transform *o2w,
     }
 
     const Float *vknots = params.FindFloat("vknots", &nvknots);
-    if (vknots == nullptr) {
+    if (!vknots) {
         Error("Must provide v knot vector \"vknots\" with NURBS shape.");
         return std::vector<std::shared_ptr<Shape>>();
     }
@@ -301,7 +301,7 @@ std::vector<std::shared_ptr<Shape>> CreateNURBS(const Transform *o2w,
     }
     int nVerts = diceu * dicev;
 
-    return CreateTriangleMesh(o2w, w2o, ReverseOrientation, nTris,
+    return CreateTriangleMesh(o2w, w2o, reverseOrientation, nTris,
                               vertices.get(), nVerts, evalPs.get(), nullptr,
                               evalNs.get(), uvs.get(), nullptr);
 }

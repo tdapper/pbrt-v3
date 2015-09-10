@@ -59,24 +59,18 @@ static RGBSpectrum *ReadImagePFM(const std::string &filename, int *xres,
 // ImageIO Function Definitions
 std::unique_ptr<RGBSpectrum[]> ReadImage(const std::string &name,
                                          Point2i *resolution) {
-    if (name.size() >= 5) {
-        size_t suffixOffset = name.size() - 4;
-        if (!strcmp(name.c_str() + suffixOffset, ".exr") ||
-            !strcmp(name.c_str() + suffixOffset, ".EXR"))
-            return std::unique_ptr<RGBSpectrum[]>(
-                ReadImageEXR(name, &resolution->x, &resolution->y));
-        if (!strcmp(name.c_str() + suffixOffset, ".tga") ||
-            !strcmp(name.c_str() + suffixOffset, ".TGA"))
-            return std::unique_ptr<RGBSpectrum[]>(
-                ReadImageTGA(name, &resolution->x, &resolution->y));
-        if (!strcmp(name.c_str() + suffixOffset, ".pfm") ||
-            !strcmp(name.c_str() + suffixOffset, ".PFM"))
-            return std::unique_ptr<RGBSpectrum[]>(
-                ReadImagePFM(name, &resolution->x, &resolution->y));
-    }
+    if (HasExtension(name, ".exr"))
+        return std::unique_ptr<RGBSpectrum[]>(
+            ReadImageEXR(name, &resolution->x, &resolution->y));
+    else if (HasExtension(name, ".tga"))
+        return std::unique_ptr<RGBSpectrum[]>(
+            ReadImageTGA(name, &resolution->x, &resolution->y));
+    else if (HasExtension(name, ".pfm"))
+        return std::unique_ptr<RGBSpectrum[]>(
+            ReadImagePFM(name, &resolution->x, &resolution->y));
     Error(
         "Unable to load image stored in format \"%s\" for filename \"%s\". "
-        "Returning a constant grey image instead.",
+        "Returning a constant gray image instead.",
         strrchr(name.c_str(), '.') ? (strrchr(name.c_str(), '.') + 1)
                                    : "(unknown)",
         name.c_str());
@@ -87,59 +81,43 @@ std::unique_ptr<RGBSpectrum[]> ReadImage(const std::string &name,
 }
 
 void WriteImage(const std::string &name, const Float *rgb,
-                const Bounds2i &outputBounds, const Point2i &totalResolution,
-                Float gamma) {
-    if (name.size() >= 5) {
-        size_t suffixOffset = name.size() - 4;
-        if (!strcmp(name.c_str() + suffixOffset, ".exr") ||
-            !strcmp(name.c_str() + suffixOffset, ".EXR")) {
-            WriteImageEXR(name, rgb, outputBounds.pMax.x - outputBounds.pMin.x,
-                          outputBounds.pMax.y - outputBounds.pMin.y,
-                          totalResolution.x, totalResolution.y,
-                          outputBounds.pMin.x, outputBounds.pMin.y);
-            return;
-        }
-        if (!strcmp(name.c_str() + suffixOffset, ".pfm") ||
-            !strcmp(name.c_str() + suffixOffset, ".PFM")) {
-            Vector2i resolution = outputBounds.Diagonal();
-            WriteImagePFM(name, rgb, resolution.x, resolution.y);
-            return;
-        }
-        if (!strcmp(name.c_str() + suffixOffset, ".tga") ||
-            !strcmp(name.c_str() + suffixOffset, ".TGA") ||
-            !strcmp(name.c_str() + suffixOffset, ".png") ||
-            !strcmp(name.c_str() + suffixOffset, ".PNG")) {
-            // 8-bit formats; apply gamma
-            Vector2i resolution = outputBounds.Diagonal();
-            std::unique_ptr<uint8_t[]> rgb8(
-                new uint8_t[3 * resolution.x * resolution.y]);
-            uint8_t *dst = rgb8.get();
-            for (int y = 0; y < resolution.y; ++y) {
-                for (int x = 0; x < resolution.x; ++x) {
-#define TO_BYTE(v) (uint8_t(Clamp(255.f * powf((v), 1.f / gamma), 0.f, 255.f)))
-                    dst[0] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 0]);
-                    dst[1] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 1]);
-                    dst[2] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 2]);
+                const Bounds2i &outputBounds, const Point2i &totalResolution) {
+    Vector2i resolution = outputBounds.Diagonal();
+    if (HasExtension(name, ".exr")) {
+        WriteImageEXR(name, rgb, resolution.x, resolution.y, totalResolution.x,
+                      totalResolution.y, outputBounds.pMin.x,
+                      outputBounds.pMin.y);
+    } else if (HasExtension(name, ".exr")) {
+        WriteImagePFM(name, rgb, resolution.x, resolution.y);
+    } else if (HasExtension(name, ".tga") || HasExtension(name, ".png")) {
+        // 8-bit formats; apply gamma
+        Vector2i resolution = outputBounds.Diagonal();
+        std::unique_ptr<uint8_t[]> rgb8(
+            new uint8_t[3 * resolution.x * resolution.y]);
+        uint8_t *dst = rgb8.get();
+        for (int y = 0; y < resolution.y; ++y) {
+            for (int x = 0; x < resolution.x; ++x) {
+#define TO_BYTE(v) (uint8_t) Clamp(255.f * GammaCorrect(v) + 0.5f, 0.f, 255.f)
+                dst[0] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 0]);
+                dst[1] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 1]);
+                dst[2] = TO_BYTE(rgb[3 * (y * resolution.x + x) + 2]);
 #undef TO_BYTE
-                    dst += 3;
-                }
+                dst += 3;
             }
-
-            if (!strcmp(name.c_str() + suffixOffset, ".tga") ||
-                !strcmp(name.c_str() + suffixOffset, ".TGA"))
-                WriteImageTGA(name, rgb8.get(),
-                              outputBounds.pMax.x - outputBounds.pMin.x,
-                              outputBounds.pMax.y - outputBounds.pMin.y,
-                              totalResolution.x, totalResolution.y,
-                              outputBounds.pMin.x, outputBounds.pMin.y);
-            else if (stbi_write_png(name.c_str(), resolution.x, resolution.y, 3,
-                                    rgb8.get(), 3 * resolution.x) == 0)
-                Error("Error writing PNG \"%s\"", name.c_str());
-            return;
         }
+
+        if (HasExtension(name, ".tga"))
+            WriteImageTGA(
+                name, rgb8.get(), outputBounds.pMax.x - outputBounds.pMin.x,
+                outputBounds.pMax.y - outputBounds.pMin.y, totalResolution.x,
+                totalResolution.y, outputBounds.pMin.x, outputBounds.pMin.y);
+        else if (stbi_write_png(name.c_str(), resolution.x, resolution.y, 3,
+                                rgb8.get(), 3 * resolution.x) == 0)
+            Error("Error writing PNG \"%s\"", name.c_str());
+    } else {
+        Error("Can't determine image file type from suffix of filename \"%s\"",
+              name.c_str());
     }
-    Error("Can't determine image file type from suffix of filename \"%s\"",
-          name.c_str());
 }
 
 static Float convert(void *p, int offset, int type) {
@@ -163,6 +141,14 @@ static RGBSpectrum *ReadImageEXR(const std::string &name, int *width,
                                  int *height) {
     EXRImage img;
     const char *err = nullptr;
+    if (ParseMultiChannelEXRHeaderFromFile(&img, name.c_str(), &err) != 0) {
+        Error("Unable to read \"%s\": %s", name.c_str(), err);
+        return nullptr;
+    }
+    for (int i = 0; i < img.num_channels; ++i) {
+        if (img.requested_pixel_types[i] == TINYEXR_PIXELTYPE_HALF)
+            img.requested_pixel_types[i] = TINYEXR_PIXELTYPE_FLOAT;
+    }
     if (LoadMultiChannelEXRFromFile(&img, name.c_str(), &err) != 0) {
         Error("Unable to read \"%s\": %s", name.c_str(), err);
         return nullptr;
@@ -198,6 +184,8 @@ static RGBSpectrum *ReadImageEXR(const std::string &name, int *width,
             }
         }
     }
+    FreeEXRImage(&img);
+
     return ret;
 }
 
@@ -208,9 +196,12 @@ static void WriteImageEXR(const std::string &name, const Float *pixels,
     image.num_channels = 3;
     const char *channel_names[] = {"B", "G", "R"};
     image.channel_names = channel_names;
-    int pixel_types[3] = {TINYEXR_PIXELTYPE_HALF, TINYEXR_PIXELTYPE_HALF,
-                          TINYEXR_PIXELTYPE_HALF};
+    int pixel_types[3] = {TINYEXR_PIXELTYPE_FLOAT, TINYEXR_PIXELTYPE_FLOAT,
+                          TINYEXR_PIXELTYPE_FLOAT};
     image.pixel_types = pixel_types;
+    int requestedPixelTypes[] = {TINYEXR_PIXELTYPE_HALF, TINYEXR_PIXELTYPE_HALF,
+                                 TINYEXR_PIXELTYPE_HALF};
+    image.requested_pixel_types = requestedPixelTypes;
     image.width = xRes;
     image.height = yRes;
     image.images = new unsigned char *[3];

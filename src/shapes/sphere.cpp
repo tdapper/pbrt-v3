@@ -44,8 +44,8 @@ Bounds3f Sphere::ObjectBound() const {
                     Point3f(radius, radius, zMax));
 }
 
-bool Sphere::Intersect(const Ray &r, Float *tHit,
-                       SurfaceInteraction *isect) const {
+bool Sphere::Intersect(const Ray &r, Float *tHit, SurfaceInteraction *isect,
+                       bool testAlphaTexture) const {
     Float phi;
     Point3f pHit;
     // Transform _Ray_ to object space
@@ -152,7 +152,7 @@ bool Sphere::Intersect(const Ray &r, Float *tHit,
     return true;
 }
 
-bool Sphere::IntersectP(const Ray &r) const {
+bool Sphere::IntersectP(const Ray &r, bool testAlphaTexture) const {
     Float phi;
     Point3f pHit;
     // Transform _Ray_ to object space
@@ -213,10 +213,10 @@ bool Sphere::IntersectP(const Ray &r) const {
 Float Sphere::Area() const { return phiMax * radius * (zMax - zMin); }
 
 Interaction Sphere::Sample(const Point2f &u) const {
-    Interaction it;
     Point3f pObj = Point3f(0, 0, 0) + radius * UniformSampleSphere(u);
+    Interaction it;
     it.n = Normalize((*ObjectToWorld)(Normal3f(pObj.x, pObj.y, pObj.z)));
-    if (ReverseOrientation) it.n *= -1.f;
+    if (reverseOrientation) it.n *= -1;
     // Reproject _pObj_ to sphere surface and compute _pObjError_
     pObj *= radius / Distance(pObj, Point3f(0, 0, 0));
     Vector3f pObjError = gamma(5) * Abs((Vector3f)pObj);
@@ -234,8 +234,7 @@ Interaction Sphere::Sample(const Interaction &ref, const Point2f &u) const {
     // Sample uniformly on sphere if $\pt{}$ is inside it
     Point3f pOrigin =
         OffsetRayOrigin(ref.p, ref.pError, ref.n, pCenter - ref.p);
-    if (DistanceSquared(pOrigin, pCenter) <= 1.0001f * radius * radius)
-        return Sample(u);
+    if (DistanceSquared(pOrigin, pCenter) <= radius * radius) return Sample(u);
 
     // Sample sphere uniformly inside subtended cone
 
@@ -243,27 +242,20 @@ Interaction Sphere::Sample(const Interaction &ref, const Point2f &u) const {
     Float sinThetaMax2 = radius * radius / DistanceSquared(ref.p, pCenter);
     Float cosThetaMax = std::sqrt(std::max((Float)0, 1 - sinThetaMax2));
     Float cosTheta = (1 - u[0]) + u[0] * cosThetaMax;
-    Float sinTheta = std::sqrt(1 - cosTheta * cosTheta);
+    Float sinTheta = std::sqrt(std::max((Float)0, 1 - cosTheta * cosTheta));
     Float phi = u[1] * 2 * Pi;
 
     // Compute angle $\alpha$ from center of sphere to sampled point on surface
-    Float D2 = 1 -
-               DistanceSquared(ref.p, pCenter) * sinTheta * sinTheta /
-                   (radius * radius);
-    Float cosAlpha;
-    if (D2 <= 0)
-        cosAlpha = std::sqrt(sinThetaMax2);
-    else
-        cosAlpha = Distance(ref.p, pCenter) / radius * sinTheta * sinTheta +
-                   cosTheta * std::sqrt(D2);
-    // else cosAlpha = sinTheta * sinTheta / std::sqrt(sinThetaMax2) +
-    //    cosTheta * std::sqrt(1 - sinTheta * sinTheta / sinThetaMax2);
+    Float dc = Distance(ref.p, pCenter);
+    Float ds = dc * cosTheta -
+               std::sqrt(std::max(
+                   (Float)0, radius * radius - dc * dc * sinTheta * sinTheta));
+    Float cosAlpha = (dc * dc + radius * radius - ds * ds) / (2 * dc * radius);
     Float sinAlpha = std::sqrt(std::max((Float)0, 1 - cosAlpha * cosAlpha));
 
     // Compute surface normal and sampled point on sphere
-    Vector3f nx, ny, nz = -Normalize(pCenter - ref.p);
-    CoordinateSystem(nz, &nx, &ny);
-    Vector3f nObj = SphericalDirection(sinAlpha, cosAlpha, phi, nx, ny, nz);
+    Vector3f nObj =
+        SphericalDirection(sinAlpha, cosAlpha, phi, -wcX, -wcY, -wc);
     Point3f pObj = radius * Point3f(nObj.x, nObj.y, nObj.z);
 
     // Return _Interaction_ for sampled point on sphere
@@ -274,7 +266,7 @@ Interaction Sphere::Sample(const Interaction &ref, const Point2f &u) const {
     Vector3f pObjError = gamma(5) * Abs((Vector3f)pObj);
     it.p = (*ObjectToWorld)(pObj, pObjError, &it.pError);
     it.n = (*ObjectToWorld)(Normal3f(nObj));
-    if (ReverseOrientation) it.n *= -1.f;
+    if (reverseOrientation) it.n *= -1;
     return it;
 }
 
@@ -283,7 +275,7 @@ Float Sphere::Pdf(const Interaction &ref, const Vector3f &wi) const {
     // Return uniform PDF if point is inside sphere
     Point3f pOrigin =
         OffsetRayOrigin(ref.p, ref.pError, ref.n, pCenter - ref.p);
-    if (DistanceSquared(pOrigin, pCenter) <= 1.0001f * radius * radius)
+    if (DistanceSquared(pOrigin, pCenter) <= radius * radius)
         return Shape::Pdf(ref, wi);
 
     // Compute general sphere PDF

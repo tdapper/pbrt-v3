@@ -51,10 +51,9 @@ class HomogeneousMedium : public Medium {
           sigma_s(sigma_s),
           sigma_t(sigma_s + sigma_a),
           g(g) {}
-    Spectrum T(const Ray &ray, Sampler &sampler) const;
+    Spectrum Tr(const Ray &ray, Sampler &sampler) const;
     Spectrum Sample(const Ray &ray, Sampler &sampler, MemoryArena &arena,
                     MediumInteraction *mi) const;
-    Float Pdf(const Ray &ray, const Interaction &it) const;
 
   private:
     // HomogeneousMedium Private Data

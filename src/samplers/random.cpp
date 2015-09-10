@@ -40,18 +40,18 @@
 RandomSampler::RandomSampler(int ns, int seed) : Sampler(ns), rng(seed) {}
 
 Float RandomSampler::Get1D() {
-    Assert(currentPixelSample < samplesPerPixel);
+    Assert(currentPixelSampleIndex < samplesPerPixel);
     return rng.UniformFloat();
 }
 
 Point2f RandomSampler::Get2D() {
-    Assert(currentPixelSample < samplesPerPixel);
+    Assert(currentPixelSampleIndex < samplesPerPixel);
     return Point2f(rng.UniformFloat(), rng.UniformFloat());
 }
 
 std::unique_ptr<Sampler> RandomSampler::Clone(int seed) {
     RandomSampler *rs = new RandomSampler(*this);
-    rs->rng.Seed(seed);
+    rs->rng.SetSequence(seed);
     return std::unique_ptr<Sampler>(rs);
 }
 

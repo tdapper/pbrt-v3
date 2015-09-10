@@ -53,11 +53,12 @@ class GonioPhotometricLight : public Light {
     // GonioPhotometricLight Public Methods
     Spectrum Sample_Li(const Interaction &ref, const Point2f &u, Vector3f *wi,
                        Float *pdf, VisibilityTester *vis) const;
-    GonioPhotometricLight(const Transform &LightToWorld, const Medium *medium,
-                          const Spectrum &intensity, const std::string &texname)
-        : Light(LightFlags::DeltaPosition, LightToWorld, medium),
+    GonioPhotometricLight(const Transform &LightToWorld,
+                          const MediumInterface &mediumInterface,
+                          const Spectrum &I, const std::string &texname)
+        : Light((int)LightFlags::DeltaPosition, LightToWorld, mediumInterface),
           pLight(LightToWorld(Point3f(0, 0, 0))),
-          intensity(intensity) {
+          I(I) {
         // Create _mipmap_ for _GonioPhotometricLight_
         Point2i resolution;
         std::unique_ptr<RGBSpectrum[]> texels = ReadImage(texname, &resolution);
@@ -70,9 +71,8 @@ class GonioPhotometricLight : public Light {
         Float theta = SphericalTheta(wp);
         Float phi = SphericalPhi(wp);
         Point2f st(phi * Inv2Pi, theta * InvPi);
-        return (mipmap == nullptr)
-                   ? RGBSpectrum(1.f)
-                   : Spectrum(mipmap->Lookup(st), SpectrumType::Illuminant);
+        return !mipmap ? RGBSpectrum(1.f)
+                       : Spectrum(mipmap->Lookup(st), SpectrumType::Illuminant);
     }
     Spectrum Power() const;
     Float Pdf_Li(const Interaction &, const Vector3f &) const;
@@ -85,7 +85,7 @@ class GonioPhotometricLight : public Light {
   private:
     // GonioPhotometricLight Private Data
     const Point3f pLight;
-    const Spectrum intensity;
+    const Spectrum I;
     std::unique_ptr<MIPMap<RGBSpectrum>> mipmap;
 };
 

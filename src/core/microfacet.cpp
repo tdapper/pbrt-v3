@@ -80,7 +80,7 @@ static void BeckmannSample11(Float cosThetaI, Float U1, Float U2,
     int it = 0;
     while (++it < 10) {
         /* Bisection criterion -- the oddly-looking
-           boolean expression are intentional to check
+           Boolean expression are intentional to check
            for NaNs at little additional cost */
         if (!(b >= a && b <= c)) b = 0.5f * (a + c);
 
@@ -156,7 +156,7 @@ Float TrowbridgeReitzDistribution::D(const Vector3f &wh) const {
     Float e =
         (Cos2Phi(wh) / (alphax * alphax) + Sin2Phi(wh) / (alphay * alphay)) *
         tan2Theta;
-    return 1. / (Pi * alphax * alphay * cos4Theta * (1. + e) * (1. + e));
+    return 1 / (Pi * alphax * alphay * cos4Theta * (1 + e) * (1 + e));
 }
 
 Float BeckmannDistribution::Lambda(const Vector3f &w) const {
@@ -165,9 +165,9 @@ Float BeckmannDistribution::Lambda(const Vector3f &w) const {
     // Compute _alpha_ for direction _w_
     Float alpha =
         std::sqrt(Cos2Phi(w) * alphax * alphax + Sin2Phi(w) * alphay * alphay);
-    Float a = 1.f / (alpha * absTanTheta);
-    if (a >= 1.6) return 0.f;
-    return (1.f - 1.259f * a + 0.396f * a * a) / (3.535f * a + 2.181f * a * a);
+    Float a = 1 / (alpha * absTanTheta);
+    if (a >= 1.6f) return 0;
+    return (1 - 1.259f * a + 0.396f * a * a) / (3.535f * a + 2.181f * a * a);
 }
 
 Float TrowbridgeReitzDistribution::Lambda(const Vector3f &w) const {
@@ -177,14 +177,13 @@ Float TrowbridgeReitzDistribution::Lambda(const Vector3f &w) const {
     Float alpha =
         std::sqrt(Cos2Phi(w) * alphax * alphax + Sin2Phi(w) * alphay * alphay);
     Float alpha2Tan2Theta = (alpha * absTanTheta) * (alpha * absTanTheta);
-    return (-1.f + std::sqrt(1.f + alpha2Tan2Theta)) / 2.f;
+    return (-1 + std::sqrt(1.f + alpha2Tan2Theta)) / 2;
 }
 
 Vector3f BeckmannDistribution::Sample_wh(const Vector3f &wo,
                                          const Point2f &u) const {
     if (!sampleVisibleArea) {
         // Sample full distribution of normals for Beckmann distribution
-        Vector3f wh;
 
         // Compute $\tan^2 \theta$ and $\phi$ for Beckmann distribution sample
         Float tan2Theta, phi;
@@ -210,11 +209,11 @@ Vector3f BeckmannDistribution::Sample_wh(const Vector3f &wo,
         // Map sampled Beckmann angles to normal direction _wh_
         Float cosTheta = 1 / std::sqrt(1 + tan2Theta);
         Float sinTheta = std::sqrt(std::max((Float)0, 1 - cosTheta * cosTheta));
-        wh = SphericalDirection(sinTheta, cosTheta, phi);
+        Vector3f wh = SphericalDirection(sinTheta, cosTheta, phi);
         if (!SameHemisphere(wo, wh)) wh = -wh;
         return wh;
     } else {
-        // Sample visible area of normals with Beckmann distribution
+        // Sample visible area of normals for Beckmann distribution
         Vector3f wh;
         bool flip = wo.z < 0;
         wh = BeckmannSample(flip ? -wo : wo, alphax, alphay, u[0], u[1]);

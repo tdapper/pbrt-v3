@@ -47,17 +47,17 @@ class Cylinder : public Shape {
   public:
     // Cylinder Public Methods
     Cylinder(const Transform *ObjectToWorld, const Transform *WorldToObject,
-             bool ReverseOrientation, Float radius, Float zMin, Float zMax,
+             bool reverseOrientation, Float radius, Float zMin, Float zMax,
              Float phiMax)
-        : Shape(ObjectToWorld, WorldToObject, ReverseOrientation),
+        : Shape(ObjectToWorld, WorldToObject, reverseOrientation),
           radius(radius),
           zMin(std::min(zMin, zMax)),
           zMax(std::max(zMin, zMax)),
           phiMax(Radians(Clamp(phiMax, 0, 360))) {}
     Bounds3f ObjectBound() const;
-    bool Intersect(const Ray &ray, Float *tHit,
-                   SurfaceInteraction *isect) const;
-    bool IntersectP(const Ray &ray) const;
+    bool Intersect(const Ray &ray, Float *tHit, SurfaceInteraction *isect,
+                   bool testAlphaTexture) const;
+    bool IntersectP(const Ray &ray, bool testAlphaTexture) const;
     Float Area() const;
     Interaction Sample(const Point2f &u) const;
 

@@ -40,16 +40,17 @@
 // DistantLight Method Definitions
 DistantLight::DistantLight(const Transform &LightToWorld, const Spectrum &L,
                            const Vector3f &wLight)
-    : Light(LightFlags::DeltaDirection, LightToWorld, nullptr),
+    : Light((int)LightFlags::DeltaDirection, LightToWorld, MediumInterface()),
       L(L),
       wLight(Normalize(LightToWorld(wLight))) {}
 Spectrum DistantLight::Sample_Li(const Interaction &ref, const Point2f &u,
                                  Vector3f *wi, Float *pdf,
                                  VisibilityTester *vis) const {
     *wi = wLight;
-    *pdf = 1.f;
+    *pdf = 1;
     Point3f pOutside = ref.p + wLight * (2 * worldRadius);
-    *vis = VisibilityTester(ref, Interaction(pOutside, ref.time, medium));
+    *vis =
+        VisibilityTester(ref, Interaction(pOutside, ref.time, mediumInterface));
     return L;
 }
 

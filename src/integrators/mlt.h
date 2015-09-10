@@ -51,33 +51,40 @@
 class MLTSampler : public Sampler {
   public:
     // MLTSampler Public Methods
-    MLTSampler(int64_t mutationsPerPixel, int id, Float sigma,
-               Float largeStepProb);
+    MLTSampler(int mutationsPerPixel, int rngSequenceIndex, Float sigma,
+               Float largeStepProbability, int streamCount)
+        : Sampler(mutationsPerPixel),
+          rng(rngSequenceIndex),
+          sigma(sigma),
+          largeStepProbability(largeStepProbability),
+          streamCount(streamCount) {}
     Float Get1D();
     Point2f Get2D();
     std::unique_ptr<Sampler> Clone(int seed);
-    void Begin();
+    void StartIteration();
     void Accept();
     void Reject();
-    void SetStream(int streamCount_, int streamIndex_);
+    void StartStream(int index);
     int GetNextIndex() { return streamIndex + streamCount * sampleIndex++; }
 
   protected:
     // MLTSampler Private Declarations
     struct PrimarySample {
         Float value = 0;
-        // PrimarySample Members
-        int modify = 0;
-        Float value_backup = 0;
-        int modify_backup = 0;
+        // PrimarySample Public Methods
         void Backup() {
-            value_backup = value;
-            modify_backup = modify;
+            valueBackup = value;
+            modifyBackup = lastModificationIteration;
         }
         void Restore() {
-            value = value_backup;
-            modify = modify_backup;
+            value = valueBackup;
+            lastModificationIteration = modifyBackup;
         }
+
+        // PrimarySample Public Data
+        int64_t lastModificationIteration = 0;
+        Float valueBackup = 0;
+        int64_t modifyBackup = 0;
     };
 
     // MLTSampler Private Methods
@@ -85,45 +92,42 @@ class MLTSampler : public Sampler {
 
     // MLTSampler Private Data
     RNG rng;
-    Float sigma;
-    Float largeStepProb;
-    std::vector<PrimarySample> samples;
-    int iteration = 0;
+    const Float sigma, largeStepProbability;
+    const int streamCount;
+    std::vector<PrimarySample> X;
+    int64_t currentIteration = 0;
     bool largeStep = true;
-    int lastLargeStep = 0;
-    int streamIndex;
-    int streamCount;
-    int sampleIndex;
+    int64_t lastLargeStepIteration = 0;
+    int streamIndex, sampleIndex;
 };
 
 // MLT Declarations
 class MLTIntegrator : public Integrator {
   public:
     // MLTIntegrator Public Methods
-    MLTIntegrator(std::shared_ptr<const Camera> camera, int maxdepth,
-                  int nBootstrap, int nChains, int64_t mutationsPerPixel,
-                  Float sigma, Float largeStepProb)
+    MLTIntegrator(std::shared_ptr<const Camera> camera, int maxDepth,
+                  int nBootstrap, int nChains, int mutationsPerPixel,
+                  Float sigma, Float largeStepProbability)
         : camera(camera),
-          maxdepth(maxdepth),
+          maxDepth(maxDepth),
           nBootstrap(nBootstrap),
           nChains(nChains),
           mutationsPerPixel(mutationsPerPixel),
           sigma(sigma),
-          largeStepProb(largeStepProb){};
+          largeStepProbability(largeStepProbability) {}
     void Render(const Scene &scene);
-    Spectrum EvaluateSample(const Scene &scene, MemoryArena &arena,
-                            MLTSampler &sampler, int k, Point2f *samplePos);
+    Spectrum L(const Scene &scene, MemoryArena &arena,
+               const std::unique_ptr<Distribution1D> &lightDistr,
+               MLTSampler &sampler, int k, Point2f *pRaster);
 
   private:
     // MLTIntegrator Private Data
     std::shared_ptr<const Camera> camera;
-    int maxdepth;
-    int nBootstrap;
-    int nChains;
-    int64_t mutationsPerPixel;
-    Float sigma;
-    Float largeStepProb;
-    std::unique_ptr<Distribution1D> lightDistr;
+    const int maxDepth;
+    const int nBootstrap;
+    const int mutationsPerPixel;
+    const Float sigma, largeStepProbability;
+    const int nChains;
 };
 
 MLTIntegrator *CreateMLTIntegrator(const ParamSet &params,

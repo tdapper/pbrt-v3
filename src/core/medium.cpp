@@ -157,7 +157,7 @@ static MeasuredSS SubsurfaceParameterTable[] = {
     {"Lemon Tea Powder",
      {0.040224, 0.045264, 0.051081},
      {2.4288, 4.5757, 7.2127}},
-    {"Orange Powder Powder",
+    {"Orange Powder",
      {0.00015617, 0.00017482, 0.0001762},
      {0.001449, 0.003441, 0.007863}},
     {"Pink Lemonade Powder",
@@ -174,10 +174,6 @@ static MeasuredSS SubsurfaceParameterTable[] = {
      {0.031845, 0.031324, 0.030147}}};
 
 // Media Definitions
-Float HenyeyGreenstein::p(const Vector3f &wo, const Vector3f &wi) const {
-    return PhaseHG(Dot(wo, wi), g);
-}
-
 bool GetMediumScatteringProperties(const std::string &name, Spectrum *sigma_a,
                                    Spectrum *sigma_prime_s) {
     for (MeasuredSS &mss : SubsurfaceParameterTable) {
@@ -191,20 +187,26 @@ bool GetMediumScatteringProperties(const std::string &name, Spectrum *sigma_a,
 }
 
 Float HenyeyGreenstein::Sample_p(const Vector3f &wo, Vector3f *wi,
-                                 const Point2f &sample) const {
+                                 const Point2f &u) const {
+    // Compute $\cos \theta$ for Henyey--Greenstein sample
     Float cosTheta;
     if (std::abs(g) < 1e-3)
-        cosTheta = 1.f - 2.f * sample.x;
+        cosTheta = 1 - 2 * u[0];
     else {
-        Float sqrTerm = (1.f - g * g) / (1.f - g + 2.f * g * sample.x);
-        cosTheta = (1.f + g * g - sqrTerm * sqrTerm) / (2.f * g);
+        Float sqrTerm = (1 - g * g) / (1 - g + 2 * g * u[0]);
+        cosTheta = (1 + g * g - sqrTerm * sqrTerm) / (2 * g);
     }
-    Float sinTheta =
-        std::sqrt(std::max((Float)0., (Float)1. - cosTheta * cosTheta));
-    Float phi = 2 * Pi * sample.y;
+
+    // Compute direction _wi_ for Henyey--Greenstein sample
+    Float sinTheta = std::sqrt(std::max((Float)0, 1 - cosTheta * cosTheta));
+    Float phi = 2 * Pi * u[1];
     Vector3f v1, v2;
     CoordinateSystem(wo, &v1, &v2);
-
     *wi = SphericalDirection(sinTheta, cosTheta, phi, v1, v2, -wo);
     return PhaseHG(-cosTheta, g);
+}
+
+// HenyeyGreenstein Method Definitions
+Float HenyeyGreenstein::p(const Vector3f &wo, const Vector3f &wi) const {
+    return PhaseHG(Dot(wo, wi), g);
 }

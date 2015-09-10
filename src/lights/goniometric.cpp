@@ -44,15 +44,15 @@ Spectrum GonioPhotometricLight::Sample_Li(const Interaction &ref,
                                           VisibilityTester *vis) const {
     *wi = Normalize(pLight - ref.p);
     *pdf = 1.f;
-    *vis = VisibilityTester(ref, Interaction(pLight, ref.time, medium));
-    return intensity * Scale(-*wi) / DistanceSquared(pLight, ref.p);
+    *vis =
+        VisibilityTester(ref, Interaction(pLight, ref.time, mediumInterface));
+    return I * Scale(-*wi) / DistanceSquared(pLight, ref.p);
 }
 
 Spectrum GonioPhotometricLight::Power() const {
-    return 4.f * Pi * intensity *
-           Spectrum(
-               mipmap ? mipmap->Lookup(Point2f(.5f, .5f), .5f) : Spectrum(1.f),
-               SpectrumType::Illuminant);
+    return 4 * Pi * I * Spectrum(mipmap ? mipmap->Lookup(Point2f(.5f, .5f), .5f)
+                                        : Spectrum(1.f),
+                                 SpectrumType::Illuminant);
 }
 
 Float GonioPhotometricLight::Pdf_Li(const Interaction &,
@@ -64,11 +64,12 @@ Spectrum GonioPhotometricLight::Sample_Le(const Point2f &u1, const Point2f &u2,
                                           Float time, Ray *ray,
                                           Normal3f *nLight, Float *pdfPos,
                                           Float *pdfDir) const {
-    *ray = Ray(pLight, UniformSampleSphere(u1), Infinity, time, 0, medium);
+    *ray = Ray(pLight, UniformSampleSphere(u1), Infinity, time,
+               mediumInterface.inside);
     *nLight = (Normal3f)ray->d;
     *pdfPos = 1.f;
     *pdfDir = UniformSpherePdf();
-    return intensity * Scale(ray->d);
+    return I * Scale(ray->d);
 }
 
 void GonioPhotometricLight::Pdf_Le(const Ray &, const Normal3f &, Float *pdfPos,

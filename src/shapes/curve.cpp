@@ -62,7 +62,7 @@ static Point3f EvalBezier(const Point3f cp[4], Float u,
     Point3f cp1[3] = {Lerp(u, cp[0], cp[1]), Lerp(u, cp[1], cp[2]),
                       Lerp(u, cp[2], cp[3])};
     Point3f cp2[2] = {Lerp(u, cp1[0], cp1[1]), Lerp(u, cp1[1], cp1[2])};
-    if (deriv) *deriv = (Float)3. * (cp2[1] - cp2[0]);
+    if (deriv) *deriv = (Float)3 * (cp2[1] - cp2[0]);
     return Lerp(u, cp2[0], cp2[1]);
 }
 
@@ -111,8 +111,8 @@ Bounds3f Curve::ObjectBound() const {
     return Expand(b, std::max(width[0], width[1]) * 0.5f);
 }
 
-bool Curve::Intersect(const Ray &r, Float *tHit,
-                      SurfaceInteraction *isect) const {
+bool Curve::Intersect(const Ray &r, Float *tHit, SurfaceInteraction *isect,
+                      bool testAlphaTexture) const {
     ++nTests;
     // Transform _Ray_ to object space
     Vector3f oErr, dErr;
@@ -182,7 +182,6 @@ bool Curve::recursiveIntersect(const Ray &ray, Float *tHit,
         // Intersect ray with curve segment
 
         // Test ray against segment endpoint boundaries
-        Vector2f segmentDirection = Point2f(cp[3]) - Point2f(cp[0]);
 
         // Test sample point against tangent perpendicular at curve start
         Float edge =
@@ -190,13 +189,12 @@ bool Curve::recursiveIntersect(const Ray &ray, Float *tHit,
         if (edge < 0) return false;
 
         // Test sample point against tangent perpendicular at curve end
-        // TODO: update to match the starting test.
-        Vector2f endTangent = Point2f(cp[2]) - Point2f(cp[3]);
-        if (Dot(segmentDirection, endTangent) < 0) endTangent = -endTangent;
-        if (Dot(endTangent, Vector2f(cp[3])) < 0) return false;
+        edge = (cp[2].y - cp[3].y) * -cp[3].y + cp[3].x * (cp[3].x - cp[2].x);
+        if (edge < 0) return false;
 
         // Compute line $w$ that gives minimum distance to sample point
-        Float denom = Dot(segmentDirection, segmentDirection);
+        Vector2f segmentDirection = Point2f(cp[3]) - Point2f(cp[0]);
+        Float denom = segmentDirection.LengthSquared();
         if (denom == 0) return false;
         Float w = Dot(-Vector2f(cp[0]), segmentDirection) / denom;
 
@@ -211,7 +209,7 @@ bool Curve::recursiveIntersect(const Ray &ray, Float *tHit,
             Float sin1 =
                 std::sin(u * common->normalAngle) * common->invSinNormalAngle;
             nHit = sin0 * common->n[0] + sin1 * common->n[1];
-            hitWidth *= AbsDot(nHit, -ray.d / rayLength);
+            hitWidth *= AbsDot(nHit, ray.d) / rayLength;
         }
 
         // Test intersection point against curve width
@@ -224,8 +222,8 @@ bool Curve::recursiveIntersect(const Ray &ray, Float *tHit,
         // Compute $v$ coordinate of curve intersection point
         Float ptCurveDist = std::sqrt(ptCurveDist2);
         Float edgeFunc = dpcdw.x * -pc.y + pc.x * dpcdw.y;
-        Float v = (edgeFunc > 0.) ? 0.5f + ptCurveDist / hitWidth
-                                  : 0.5f - ptCurveDist / hitWidth;
+        Float v = (edgeFunc > 0) ? 0.5f + ptCurveDist / hitWidth
+                                 : 0.5f - ptCurveDist / hitWidth;
 
         // Compute hit _t_ and partial derivatives for curve intersection
         if (tHit != nullptr) {
@@ -331,7 +329,7 @@ std::vector<std::shared_ptr<Shape>> CreateCurveShape(const Transform *o2w,
 
     int sd = params.FindOneFloat("splitdepth", 2);
 
-    if (type == CurveType::Ribbon && n == nullptr) {
+    if (type == CurveType::Ribbon && !n) {
         Error(
             "Must provide normals \"N\" at curve endpoints with ribbon "
             "curves.");

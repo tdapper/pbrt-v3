@@ -48,10 +48,11 @@ class EFloat {
     // EFloat Public Methods
     EFloat() {}
     EFloat(float v, float err = 0.f) : v(v), err(err) {
+// Store high precision reference value in _EFloat_
 #ifndef NDEBUG
         ld = v;
         Check();
-#endif
+#endif  // NDEBUG
     }
 #ifndef NDEBUG
     EFloat(float v, long double ld, float err) : v(v), err(err), ld(ld) {
@@ -156,7 +157,7 @@ class EFloat {
     float err;
 #ifndef NDEBUG
     long double ld;
-#endif  // DEBUG
+#endif  // NDEBUG
     friend inline EFloat sqrt(EFloat fe);
     friend inline EFloat abs(EFloat fe);
     friend inline bool Quadratic(EFloat A, EFloat B, EFloat C, EFloat *t0,

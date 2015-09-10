@@ -47,17 +47,17 @@ class Disk : public Shape {
   public:
     // Disk Public Methods
     Disk(const Transform *ObjectToWorld, const Transform *WorldToObject,
-         bool ReverseOrientation, Float height, Float radius, Float innerRadius,
+         bool reverseOrientation, Float height, Float radius, Float innerRadius,
          Float phiMax)
-        : Shape(ObjectToWorld, WorldToObject, ReverseOrientation),
+        : Shape(ObjectToWorld, WorldToObject, reverseOrientation),
           height(height),
           radius(radius),
           innerRadius(innerRadius),
           phiMax(Radians(Clamp(phiMax, 0, 360))) {}
     Bounds3f ObjectBound() const;
-    bool Intersect(const Ray &ray, Float *tHit,
-                   SurfaceInteraction *isect) const;
-    bool IntersectP(const Ray &ray) const;
+    bool Intersect(const Ray &ray, Float *tHit, SurfaceInteraction *isect,
+                   bool testAlphaTexture) const;
+    bool IntersectP(const Ray &ray, bool testAlphaTexture) const;
     Float Area() const;
     Interaction Sample(const Point2f &u) const;
 

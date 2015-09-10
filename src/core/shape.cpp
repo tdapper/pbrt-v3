@@ -41,11 +41,11 @@ Shape::~Shape() {}
 
 STAT_COUNTER("Scene/Shapes created", nShapesCreated);
 Shape::Shape(const Transform *ObjectToWorld, const Transform *WorldToObject,
-             bool ReverseOrientation)
+             bool reverseOrientation)
     : ObjectToWorld(ObjectToWorld),
       WorldToObject(WorldToObject),
-      ReverseOrientation(ReverseOrientation),
-      TransformSwapsHandedness(ObjectToWorld->SwapsHandedness()) {
+      reverseOrientation(reverseOrientation),
+      transformSwapsHandedness(ObjectToWorld->SwapsHandedness()) {
     ++nShapesCreated;
 }
 
@@ -53,11 +53,13 @@ Bounds3f Shape::WorldBound() const { return (*ObjectToWorld)(ObjectBound()); }
 
 Float Shape::Pdf(const Interaction &ref, const Vector3f &wi) const {
     // Intersect sample ray with area light geometry
-    SurfaceInteraction isectLight;
     Ray ray = ref.SpawnRay(wi);
-    ray.depth = -1;  // temporary hack to ignore alpha mask
     Float tHit;
-    if (!Intersect(ray, &tHit, &isectLight)) return 0;
+    SurfaceInteraction isectLight;
+    // Ignore any alpha textures used for trimming the shape when performing
+    // this intersection. Hack for the "San Miguel" scene, where this is used
+    // to make an invisible area light.
+    if (!Intersect(ray, &tHit, &isectLight, false)) return 0;
 
     // Convert light sample weight to solid angle measure
     Float pdf = DistanceSquared(ref.p, isectLight.p) /

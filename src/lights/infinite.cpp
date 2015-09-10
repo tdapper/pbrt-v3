@@ -42,7 +42,8 @@
 InfiniteAreaLight::InfiniteAreaLight(const Transform &LightToWorld,
                                      const Spectrum &L, int nSamples,
                                      const std::string &texmap)
-    : Light(LightFlags::Infinite, LightToWorld, nullptr, nSamples) {
+    : Light((int)LightFlags::Infinite, LightToWorld, MediumInterface(),
+            nSamples) {
     // Read texel data from _texmap_ and initialize _Lmap_
     Point2i resolution;
     std::unique_ptr<RGBSpectrum[]> texels(nullptr);
@@ -91,28 +92,28 @@ Spectrum InfiniteAreaLight::Le(const RayDifferential &ray) const {
     return Spectrum(Lmap->Lookup(st), SpectrumType::Illuminant);
 }
 
-Spectrum InfiniteAreaLight::Sample_Li(const Interaction &ref,
-                                      const Point2f &lightSample, Vector3f *wi,
-                                      Float *pdf, VisibilityTester *vis) const {
+Spectrum InfiniteAreaLight::Sample_Li(const Interaction &ref, const Point2f &u,
+                                      Vector3f *wi, Float *pdf,
+                                      VisibilityTester *vis) const {
     // Find $(u,v)$ sample coordinates in infinite light texture
     Float mapPdf;
-    Point2f uv = distribution->SampleContinuous(lightSample, &mapPdf);
+    Point2f uv = distribution->SampleContinuous(u, &mapPdf);
     if (mapPdf == 0) return Spectrum(0.f);
 
     // Convert infinite light sample point to direction
-    Float theta = uv[1] * Pi, phi = uv[0] * 2.f * Pi;
+    Float theta = uv[1] * Pi, phi = uv[0] * 2 * Pi;
     Float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
     Float sinPhi = std::sin(phi), cosPhi = std::cos(phi);
     *wi =
         LightToWorld(Vector3f(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta));
 
     // Compute PDF for sampled infinite light direction
-    *pdf = mapPdf / (2.f * Pi * Pi * sinTheta);
+    *pdf = mapPdf / (2 * Pi * Pi * sinTheta);
     if (sinTheta == 0) *pdf = 0;
 
     // Return radiance value for infinite light direction
-    *vis = VisibilityTester(
-        ref, Interaction(ref.p + *wi * (2 * worldRadius), ref.time, medium));
+    *vis = VisibilityTester(ref, Interaction(ref.p + *wi * (2 * worldRadius),
+                                             ref.time, mediumInterface));
     return Spectrum(Lmap->Lookup(uv), SpectrumType::Illuminant);
 }
 
@@ -122,18 +123,18 @@ Float InfiniteAreaLight::Pdf_Li(const Interaction &, const Vector3f &w) const {
     Float sinTheta = std::sin(theta);
     if (sinTheta == 0) return 0;
     return distribution->Pdf(Point2f(phi * Inv2Pi, theta * InvPi)) /
-           (2.f * Pi * Pi * sinTheta);
+           (2 * Pi * Pi * sinTheta);
 }
 
 Spectrum InfiniteAreaLight::Sample_Le(const Point2f &u1, const Point2f &u2,
                                       Float time, Ray *ray, Normal3f *nLight,
                                       Float *pdfPos, Float *pdfDir) const {
     // Compute direction for infinite light sample ray
-    Point2f lightSample = u1;
+    Point2f u = u1;
 
     // Find $(u,v)$ sample coordinates in infinite light texture
     Float mapPdf;
-    Point2f uv = distribution->SampleContinuous(lightSample, &mapPdf);
+    Point2f uv = distribution->SampleContinuous(u, &mapPdf);
     if (mapPdf == 0) return Spectrum(0.f);
     Float theta = uv[1] * Pi, phi = uv[0] * 2.f * Pi;
     Float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
@@ -150,16 +151,15 @@ Spectrum InfiniteAreaLight::Sample_Le(const Point2f &u1, const Point2f &u2,
     *ray = Ray(pDisk + worldRadius * -d, d, Infinity, time);
 
     // Compute _InfiniteAreaLight_ ray PDFs
-    *pdfDir = mapPdf / (2 * Pi * Pi * sinTheta);
+    *pdfDir = sinTheta == 0 ? 0 : mapPdf / (2 * Pi * Pi * sinTheta);
     *pdfPos = 1 / (Pi * worldRadius * worldRadius);
-    if (sinTheta == 0) *pdfDir = 0;
     return Spectrum(Lmap->Lookup(uv), SpectrumType::Illuminant);
 }
 
 void InfiniteAreaLight::Pdf_Le(const Ray &ray, const Normal3f &, Float *pdfPos,
                                Float *pdfDir) const {
     Vector3f d = -WorldToLight(ray.d);
-    Float theta = std::acos(d.z), phi = std::atan2(d.y, d.x);
+    Float theta = std::acos(Clamp(d.z, -1, 1)), phi = std::atan2(d.y, d.x);
     Point2f uv(phi * Inv2Pi, theta * InvPi);
     Float mapPdf = distribution->Pdf(uv);
     *pdfDir = mapPdf / (2 * Pi * Pi * std::sin(theta));

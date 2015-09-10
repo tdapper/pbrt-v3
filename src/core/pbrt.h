@@ -57,14 +57,14 @@
 
 // Global Include Files
 #include <type_traits>
+#include <algorithm>
+#include <cinttypes>
 #include <cmath>
-#include <string>
-#include <vector>
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <cinttypes>
-#include <algorithm>
+#include <string>
+#include <vector>
 #include "error.h"
 #if !defined(PBRT_IS_OSX) && !defined(PBRT_IS_OPENBSD)
 #include <malloc.h>  // for _alloca, memalign
@@ -89,10 +89,8 @@
 
 // Global Macros
 #define ALLOCA(TYPE, COUNT) (TYPE *) alloca((COUNT) * sizeof(TYPE))
-#ifdef PBRT_IS_MSVC
-#define THREAD_LOCAL thread_local
-#else
-#define THREAD_LOCAL __thread
+#ifndef PBRT_IS_MSVC
+#define thread_local __thread
 #endif
 
 // Global Forward Declarations
@@ -145,7 +143,8 @@ class Medium;
 class MediumInteraction;
 struct MediumInterface;
 class BSSRDF;
-struct BSSRDFSample;
+class SeparableBSSRDF;
+class TabulatedBSSRDF;
 struct BSSRDFTable;
 class Light;
 class VisibilityTester;
@@ -167,15 +166,9 @@ class ParamSet;
 template <typename T>
 struct ParamSetItem;
 struct Options {
-    Options() {
-        nCores = 0;
-        quickRender = quiet = openWindow = verbose = false;
-        imageFile = "";
-    }
-    int nCores;
-    bool quickRender;
-    bool quiet, verbose;
-    bool openWindow;
+    int nThreads = 0;
+    bool quickRender = false;
+    bool quiet = false, verbose = false;
     std::string imageFile;
 };
 
@@ -197,9 +190,6 @@ static constexpr Float MachineEpsilon =
     std::numeric_limits<Float>::epsilon() * 0.5;
 #endif
 const Float ShadowEpsilon = 0.0001f;
-#ifdef M_PI
-#undef M_PI
-#endif
 static const Float Pi = 3.14159265358979323846;
 static const Float InvPi = 0.31830988618379067154;
 static const Float Inv2Pi = 0.15915494309189533577;
@@ -246,7 +236,7 @@ inline float NextFloatUp(float v) {
 
     // Advance _v_ to next higher float
     uint32_t ui = FloatToBits(v);
-    if (v >= 0.)
+    if (v >= 0)
         ++ui;
     else
         --ui;
@@ -258,7 +248,7 @@ inline float NextFloatDown(float v) {
     if (std::isinf(v) && v < 0.) return v;
     if (v == 0.f) v = -0.f;
     uint32_t ui = FloatToBits(v);
-    if (v > 0.)
+    if (v > 0)
         --ui;
     else
         ++ui;
@@ -287,63 +277,18 @@ inline double NextFloatDown(double v, int delta = 1) {
     return BitsToFloat(ui);
 }
 
-inline Float gamma(int n) {
+inline constexpr Float gamma(int n) {
     return (n * MachineEpsilon) / (1 - n * MachineEpsilon);
 }
 
-inline bool AtomicCompareAndExchange(volatile int32_t *v, int32_t newValue,
-                                     int32_t oldValue) {
-#if defined(PBRT_IS_MSVC)
-    return _InterlockedCompareExchange(reinterpret_cast<volatile long *>(v),
-                                       newValue, oldValue) == oldValue;
-#else
-    return __sync_bool_compare_and_swap(v, oldValue, newValue);
-#endif
+inline Float GammaCorrect(Float value) {
+    if (value <= 0.0031308f) return 12.92f * value;
+    return 1.055f * std::pow(value, (Float)(1.f / 2.4f)) - 0.055f;
 }
 
-inline bool AtomicCompareAndExchange(volatile int64_t *v, int64_t newValue,
-                                     int64_t oldValue) {
-#if defined(PBRT_IS_MSVC)
-    return _InterlockedCompareExchange64(
-               reinterpret_cast<volatile __int64 *>(v), newValue, oldValue) ==
-           oldValue;
-#else
-    return __sync_bool_compare_and_swap(v, oldValue, newValue);
-#endif
-}
-
-inline float AtomicAdd(volatile float *dst, float delta) {
-    union bits {
-        float f;
-        int32_t i;
-    };
-    bits oldVal, newVal;
-    do {
-#if defined(__i386__) || defined(__amd64__)
-        __asm__ __volatile__("pause\n");
-#endif
-        oldVal.f = *dst;
-        newVal.f = oldVal.f + delta;
-    } while (
-        !AtomicCompareAndExchange((volatile int32_t *)dst, newVal.i, oldVal.i));
-    return newVal.f;
-}
-
-inline double AtomicAdd(volatile double *dst, double delta) {
-    union bits {
-        double f;
-        int64_t i;
-    };
-    bits oldVal, newVal;
-    do {
-#if defined(__i386__) || defined(__amd64__)
-        __asm__ __volatile__("pause\n");
-#endif
-        oldVal.f = *dst;
-        newVal.f = oldVal.f + delta;
-    } while (
-        !AtomicCompareAndExchange((volatile int64_t *)dst, newVal.i, oldVal.i));
-    return newVal.f;
+inline Float InverseGammaCorrect(Float value) {
+    if (value <= 0.04045f) return value * 1.f / 12.92f;
+    return std::pow((value + 0.055f) * 1.f / 1.055f, (Float)2.4f);
 }
 
 template <typename T, typename U, typename V>
@@ -367,9 +312,9 @@ inline Float Mod(Float a, Float b) {
     return std::fmod(a, b);
 }
 
-inline Float Radians(Float deg) { return (Pi / (Float)180) * deg; }
+inline Float Radians(Float deg) { return (Pi / 180) * deg; }
 
-inline Float Degrees(Float rad) { return ((Float)180 / Pi) * rad; }
+inline Float Degrees(Float rad) { return (180 / Pi) * rad; }
 
 inline Float Log2(Float x) {
     const Float invLog2 = 1.442695040888963387004650940071;
@@ -412,19 +357,18 @@ inline int64_t RoundUpPow2(int64_t v) {
     return v + 1;
 }
 
-#if defined(PBRT_IS_MSVC)
 inline int CountTrailingZeros(uint32_t v) {
+#if defined(PBRT_IS_MSVC)
     unsigned long index;
     if (_BitScanForward(&index, v))
         return index;
     else
         return 32;
+#else
+    return __builtin_ctz(v);
+#endif
 }
 
-#else
-inline int CountTrailingZeros(uint32_t v) { return __builtin_ctz(v); }
-
-#endif
 template <typename Predicate>
 int FindInterval(int size, const Predicate &pred) {
     int first = 0, len = size;
@@ -434,9 +378,8 @@ int FindInterval(int size, const Predicate &pred) {
         if (pred(middle)) {
             first = middle + 1;
             len -= half + 1;
-        } else {
+        } else
             len = half;
-        }
     }
     return Clamp(first - 1, 0, size - 2);
 }
@@ -452,8 +395,8 @@ inline Float Lerp(Float t, Float v1, Float v2) { return (1 - t) * v1 + t * v2; }
 
 inline bool Quadratic(Float a, Float b, Float c, Float *t0, Float *t1) {
     // Find quadratic discriminant
-    double discrim = (double)b * (double)b - 4. * (double)a * (double)c;
-    if (discrim < 0.) return false;
+    double discrim = (double)b * (double)b - 4 * (double)a * (double)c;
+    if (discrim < 0) return false;
     double rootDiscrim = std::sqrt(discrim);
 
     // Compute quadratic _t_ values

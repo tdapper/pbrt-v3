@@ -19,7 +19,7 @@ IF(MSVC)
   ADD_DEFINITIONS (/D _CRT_SECURE_NO_WARNINGS)
 ENDIF()
 
-FIND_PACKAGE ( THREADS )
+FIND_PACKAGE ( Threads )
 
 # Optionally use Bison and Flex to regenerate parser files
 # Use pregenerated files otherwise (may be outdated)
@@ -41,7 +41,7 @@ IF(BISON_FOUND AND FLEX_FOUND)
     OUTPUT ${FlexOutput}
     DEPENDS ${CMAKE_BINARY_DIR}/pbrtparse.hh
     COMMAND ${FLEX_EXECUTABLE}
-            --outfile=${FlexOutput}
+            -o${FlexOutput}
             ${CMAKE_SOURCE_DIR}/src/core/pbrtlex.ll
     COMMENT "Generating pbrtlex.cpp"
   )
@@ -59,6 +59,7 @@ ENDIF()
 
 SET ( PBRT_CORE_SOURCE
   src/core/api.cpp
+  src/core/bssrdf.cpp
   src/core/camera.cpp
   src/core/efloat.cpp
   src/core/error.cpp
@@ -97,6 +98,7 @@ SET ( PBRT_CORE_SOURCE
 
 SET ( PBRT_CORE_HEADERS
   src/core/api.h
+  src/core/bssrdf.h
   src/core/camera.h
   src/core/efloat.h
   src/core/error.h
@@ -205,26 +207,32 @@ ADD_EXECUTABLE ( obj2pbrt
 
 TARGET_LINK_LIBRARIES ( bsdftest
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 TARGET_LINK_LIBRARIES ( chi2test
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 TARGET_LINK_LIBRARIES ( exrdiff
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 TARGET_LINK_LIBRARIES ( exravg
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 TARGET_LINK_LIBRARIES ( hdrtoldr
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 TARGET_LINK_LIBRARIES ( obj2pbrt
   pbrt
+  ${CMAKE_THREAD_LIBS_INIT}
   )
 
 # Unit test

@@ -45,11 +45,16 @@
 #include "interaction.h"
 
 // LightFlags Declarations
-enum class LightFlags { DeltaPosition, DeltaDirection, Area, Infinite };
+enum class LightFlags : int {
+    DeltaPosition = 1,
+    DeltaDirection = 2,
+    Area = 4,
+    Infinite = 8
+};
 
-inline bool IsDeltaLight(LightFlags flags) {
-    return flags == LightFlags::DeltaPosition ||
-           flags == LightFlags::DeltaDirection;
+inline bool IsDeltaLight(int flags) {
+    return flags & (int)LightFlags::DeltaPosition ||
+           flags & (int)LightFlags::DeltaDirection;
 }
 
 // Light Declarations
@@ -57,11 +62,11 @@ class Light {
   public:
     // Light Interface
     virtual ~Light();
-    Light(LightFlags flags, const Transform &LightToWorld, const Medium *medium,
-          int nSamples = 1)
+    Light(int flags, const Transform &LightToWorld,
+          const MediumInterface &mediumInterface, int nSamples = 1)
         : flags(flags),
           nSamples(std::max(1, nSamples)),
-          medium(medium),
+          mediumInterface(mediumInterface),
           LightToWorld(LightToWorld),
           WorldToLight(Inverse(LightToWorld)) {
         // Warn if light has transformation with non-uniform scale
@@ -87,9 +92,9 @@ class Light {
                         Float *pdfDir) const = 0;
 
     // Light Public Data
-    const LightFlags flags;
+    const int flags;
     const int nSamples;
-    const Medium *medium;
+    const MediumInterface mediumInterface;
 
   protected:
     // Light Protected Data
@@ -105,7 +110,7 @@ class VisibilityTester {
     const Interaction &P0() const { return p0; }
     const Interaction &P1() const { return p1; }
     bool Unoccluded(const Scene &scene) const;
-    Spectrum T(const Scene &scene, Sampler &sampler) const;
+    Spectrum Tr(const Scene &scene, Sampler &sampler) const;
 
   private:
     Interaction p0, p1;
@@ -114,8 +119,9 @@ class VisibilityTester {
 class AreaLight : public Light {
   public:
     // AreaLight Interface
-    AreaLight(const Transform &LightToWorld, const Medium *medium, int nSamples)
-        : Light(LightFlags::Area, LightToWorld, medium, nSamples) {}
+    AreaLight(const Transform &LightToWorld, const MediumInterface &medium,
+              int nSamples)
+        : Light((int)LightFlags::Area, LightToWorld, medium, nSamples) {}
     virtual Spectrum L(const Interaction &intr, const Vector3f &w) const = 0;
 };
 

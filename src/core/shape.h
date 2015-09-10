@@ -51,16 +51,18 @@ class Shape {
   public:
     // Shape Interface
     Shape(const Transform *ObjectToWorld, const Transform *WorldToObject,
-          bool ReverseOrientation);
+          bool reverseOrientation);
     virtual ~Shape();
     virtual Bounds3f ObjectBound() const = 0;
     virtual Bounds3f WorldBound() const;
     virtual bool Intersect(const Ray &ray, Float *tHit,
-                           SurfaceInteraction *isect) const = 0;
-    virtual bool IntersectP(const Ray &ray) const {
+                           SurfaceInteraction *isect,
+                           bool testAlphaTexture = true) const = 0;
+    virtual bool IntersectP(const Ray &ray,
+                            bool testAlphaTexture = true) const {
         Float tHit = ray.tMax;
         SurfaceInteraction isect;
-        return Intersect(ray, &tHit, &isect);
+        return Intersect(ray, &tHit, &isect, testAlphaTexture);
     }
     virtual Float Area() const = 0;
     virtual Interaction Sample(const Point2f &u) const = 0;
@@ -72,8 +74,8 @@ class Shape {
 
     // Shape Public Data
     const Transform *ObjectToWorld, *WorldToObject;
-    const bool ReverseOrientation;
-    const bool TransformSwapsHandedness;
+    const bool reverseOrientation;
+    const bool transformSwapsHandedness;
 };
 
 #endif  // PBRT_CORE_SHAPE_H
