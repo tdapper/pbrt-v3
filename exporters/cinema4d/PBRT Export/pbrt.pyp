@@ -489,7 +489,11 @@ def ManageTexture(filename, doc, directory = None, textureList = None):
         # copy texture file to target path
         myFilename = os.path.basename(filePath)
         myDstPath = os.path.join(directory, myFilename)
-        shutil.copyfile(filePath, myDstPath)
+        if filePath != myDstPath:
+            try:
+                shutil.copyfile(filePath, myDstPath)
+            except shutil.Error as err:
+                logger.error(err)
 
         # add (absolute!) destination path to texture list
         if textureList:
@@ -735,6 +739,10 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                 pbrt.write(' ' + makePbrtAttributeFloat('roughness', roughness))
                 #pbrt.write(' ' + makePbrtAttributeColor('opacity', opacityColor, False))
 
+            # all materials take a texture that can be used to specify a bump map
+            if bumpTextureName:
+               pbrt.write(' ' + makePbrtAttribute('bumpmap', bumpTextureName))
+
             if useTranslucency:
                 # create translucent material
                 pbrt.write('\n')
@@ -744,10 +752,6 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                 pbrt.write('\n')
                 pbrt.write(indent + 'Material "mix" "color amount" [0.4 0.4 0.4] "string namedmaterial1" "' + material.GetName().lower() + '_front" "string namedmaterial2" "' + material.GetName().lower() + '_back"')
 
-            # all materials take a texture that can be used to specify a bump map
-            # (commented this line because it produces a warning when used with mixed material and duplicated it instead whereever it s used)
-            if bumpTextureName:
-               pbrt.write(' ' + makePbrtAttribute('bumpmap', bumpTextureName))
             pbrt.write('\n')
 
         # these are the point, uv, normal and index lists to be filled 
