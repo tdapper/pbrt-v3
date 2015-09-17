@@ -723,10 +723,9 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                                 break
                             shader = shader.GetNext()
 
-            opacityColor = c4d.Vector(1.0)
+            transmissivityColor = c4d.Vector(0.0)
             if material[c4d.MATERIAL_USE_TRANSPARENCY]:
-                opacityColor = (material[c4d.MATERIAL_TRANSPARENCY_COLOR] * material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS])
-            transmissivityColor = c4d.Vector(1.0) - opacityColor
+                transmissivityColor = material[c4d.MATERIAL_TRANSPARENCY_COLOR] * material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS]
 
             # create named material if material is translucent so we can reference it from Mix material
             if useTranslucency:
@@ -734,6 +733,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             else:
                 prefix = 'Material'
 
+            # use glass material if transparency is used
             if not c4d.utils.CompareFloatTolerant(transmissivityColor.GetLength(), 0.0):
                 pbrt.write(indent + prefix +' "glass" ' + makePbrtAttributeFloat('index', ior))
                 pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
@@ -744,7 +744,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                 pbrt.write(' ' + makePbrtAttribute('Ks', glossyColor if specularTextureName is None else specularTextureName))
                 pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
                 pbrt.write(' ' + makePbrtAttributeFloat('roughness', roughness))
-                #pbrt.write(' ' + makePbrtAttributeColor('opacity', opacityColor, False))
+                #pbrt.write(' ' + makePbrtAttributeColor('opacity', c4d.Vector(1.0) - transmissivityColor, False))
 
             # all materials take a texture that can be used to specify a bump map
             if bumpTextureName:
