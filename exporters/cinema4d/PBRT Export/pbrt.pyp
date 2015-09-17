@@ -324,7 +324,7 @@ class ErrorList(c4d.gui.TreeViewFunctions):
             textColor['b'] = 0.0#textColor['b'] * 0.1
 
         area.DrawSetTextCol(c4d.Vector(textColor['r'], textColor['g'], textColor['b']), bgColor)
-        area.DrawText(text, drawinfo["xpos"], drawinfo["ypos"], flags = c4d.DRAWTEXT_VALIGN_MASK)
+        area.DrawText(text, drawinfo["xpos"], drawinfo["ypos"], flags = c4d.DRAWTEXT_STD_ALIGN)
 
     def GetLineHeight(self, root, userdata, obj, col, area):
         return 16
@@ -726,6 +726,9 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             transmissivityColor = c4d.Vector(0.0)
             if material[c4d.MATERIAL_USE_TRANSPARENCY]:
                 transmissivityColor = material[c4d.MATERIAL_TRANSPARENCY_COLOR] * material[c4d.MATERIAL_TRANSPARENCY_BRIGHTNESS]
+                # taking the ior from the reflectance layer is not very reliable because when activating transparency an additional
+                # layer is added and can mess up the layer ids. So in this case we prefer the refraction setting from transparency channel.
+                ior = material[c4d.MATERIAL_TRANSPARENCY_REFRACTION]
 
             # create named material if material is translucent so we can reference it from Mix material
             if useTranslucency:
