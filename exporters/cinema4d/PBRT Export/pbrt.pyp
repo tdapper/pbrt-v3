@@ -547,7 +547,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
 
     doc = obj.GetDocument()
     pbrtDir = os.path.dirname(os.path.abspath(pbrt.name))
-    
+
     #
     # TODO:
     # to split up, do the following
@@ -571,7 +571,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
     # Also keep in mind that PBRT likes to get the texture passed directly to the mesh for
     # clipping via the alpha texture parameter.
     #
-    
+
     # grab phong normals and uvw tag. The uvw tag can be different depending on which material we are writing
     tmpPhongNormals = obj.CreatePhongNormals()
     uvwTag = obj.GetTag(c4d.Tuvw)
@@ -581,8 +581,8 @@ def ExportPolygonObject(pbrt, obj, indent=""):
     touchedPolygons = obj.GetPolygonS().GetClone()
     touchedPolygons.DeselectAll()
 
-    # for all potentially applied materials, check if there are any selections and export a trianglemesh per selection 
-    # we append an empty texturetag entry at the end, so there is an iteration that would write all polygons with the default material 
+    # for all potentially applied materials, check if there are any selections and export a trianglemesh per selection
+    # we append an empty texturetag entry at the end, so there is an iteration that would write all polygons with the default material
     textureTags = GetTextureTagsRec(obj)
     textureTags.append(c4d.BaseTag(c4d.Ttexture))
     for textureTag in textureTags:
@@ -621,7 +621,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             if material.GetType() != c4d.Mmaterial:
                 logger.warning("Unidentified material type encountered and ignored!")
                 continue
-        
+
             pbrt.write(indent + 'AttributeBegin\n')
             indent += "\t"
             innerAttributeBlock = True
@@ -640,7 +640,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                         logger.error(err)
                     else:
                         pbrt.write(indent + colorTextureString + '\n')
-            
+
             alphaTextureName = None
             if material[c4d.MATERIAL_USE_ALPHA]:
                 alphaShader = material[c4d.MATERIAL_ALPHA_SHADER]
@@ -672,33 +672,40 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             ior = 1.333
             specularTextureName = None
             if material[c4d.MATERIAL_USE_REFLECTION]:
-                reflectDataId = c4d.REFLECTION_LAYER_LAYER_DATA + c4d.REFLECTION_LAYER_LAYER_SIZE *  4 # 4 = default layer id
-                roughness = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
-                specularColor = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_COLOR]
-                specularColorBrightness = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_BRIGHTNESS]
-                specularStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_SPECULAR]
+                # look for first layer (start with default which is 4)
+                for layerId in range(4, 10000):
+                    reflectDataId = c4d.REFLECTION_LAYER_LAYER_DATA + c4d.REFLECTION_LAYER_LAYER_SIZE *  layerId
+                    # layer does not exist if this is undefined
+                    if material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_DISTRIBUTION] is None:
+                        continue
 
-                reflectType = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_DISTRIBUTION]
-                reflectionStrength = 0.25
-                if reflectType == c4d.REFLECTION_DISTRIBUTION_GGX:
-                    reflectionStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION]
-                    if material[reflectDataId + c4d.REFLECTION_LAYER_FRESNEL_MODE] == c4d.REFLECTION_FRESNEL_DIELECTRIC:
-                        ior = material[reflectDataId + c4d.REFLECTION_LAYER_FRESNEL_VALUE_IOR]
-                elif reflectType == c4d.REFLECTION_DISTRIBUTION_SPECULAR_BLINN:
-                    reflectionStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_SPECULAR]
+                    roughness = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_ROUGHNESS]
+                    specularColor = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_COLOR]
+                    specularColorBrightness = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_BRIGHTNESS]
+                    specularStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_SPECULAR]
 
-                glossyColor = specularColor * specularColorBrightness * specularStrength
-                reflectivityColor = specularColor * specularColorBrightness * reflectionStrength
+                    reflectType = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_DISTRIBUTION]
+                    reflectionStrength = 0.25
+                    if reflectType == c4d.REFLECTION_DISTRIBUTION_GGX:
+                        reflectionStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_REFLECTION]
+                        if material[reflectDataId + c4d.REFLECTION_LAYER_FRESNEL_MODE] == c4d.REFLECTION_FRESNEL_DIELECTRIC:
+                            ior = material[reflectDataId + c4d.REFLECTION_LAYER_FRESNEL_VALUE_IOR]
+                    elif reflectType == c4d.REFLECTION_DISTRIBUTION_SPECULAR_BLINN:
+                        reflectionStrength = material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_VALUE_SPECULAR]
 
-                specularColorShader = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_TEXTURE]
-                if specularColorShader is not None and specularColorShader.GetType() == c4d.Xbitmap:
-                    specularTextureFile = ManageTexture(specularColorShader[c4d.BITMAPSHADER_FILENAME], doc, pbrtDir, None)
-                    try:
-                        specularTextureName, specularTextureString = makePbrtTexture(specularTextureFile, 'specular')
-                    except RuntimeError as err:
-                        logger.error(err)
-                    else:
-                        pbrt.write(indent + specularTextureString + '\n')
+                    glossyColor = specularColor * specularColorBrightness * specularStrength
+                    reflectivityColor = specularColor * specularColorBrightness * reflectionStrength
+
+                    specularColorShader = material[reflectDataId + c4d.REFLECTION_LAYER_COLOR_TEXTURE]
+                    if specularColorShader is not None and specularColorShader.GetType() == c4d.Xbitmap:
+                        specularTextureFile = ManageTexture(specularColorShader[c4d.BITMAPSHADER_FILENAME], doc, pbrtDir, None)
+                        try:
+                            specularTextureName, specularTextureString = makePbrtTexture(specularTextureFile, 'specular')
+                        except RuntimeError as err:
+                            logger.error(err)
+                        else:
+                            pbrt.write(indent + specularTextureString + '\n')
+                    break
 
             useTranslucency = False
             if material[c4d.MATERIAL_USE_LUMINANCE]:
@@ -754,7 +761,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
 
             pbrt.write('\n')
 
-        # these are the point, uv, normal and index lists to be filled 
+        # these are the point, uv, normal and index lists to be filled
         # and written to the upcoming triangle mesh
         points = []
         uvs = None
@@ -897,7 +904,7 @@ def WalkObjectTree(pbrt, obj, functionToCall, namedObjects = [], indent = "", ro
                 indent = indent[0:-1]
                 pbrt.write(indent + "AttributeEnd\n")
                 cache = cache.GetNext()
-        
+
             for child in obj.GetChildren():
                 pbrt.write(indent + "AttributeBegin\n")
                 indent += "\t"
@@ -955,7 +962,7 @@ class PbrtThread(c4d.threading.C4DThread):
         self.exe = exe
         self.path = path
         self.pbrtProcess = None
-       
+
 
     def Main(self):
         # reset global variables
@@ -1024,7 +1031,7 @@ class PbrtThread(c4d.threading.C4DThread):
 
         pbrtContentFilename = os.path.splitext(pbrtFilename)[0] + '_geometry' + os.path.splitext(pbrtFilename)[1]
         pbrt = open(pbrtFilename, 'w')
-            
+
         #
         # output scene options that are derived from the camera/viewport
         #
@@ -1070,7 +1077,7 @@ class PbrtThread(c4d.threading.C4DThread):
         #
         pbrt.write('PixelFilter "mitchell" "float xwidth" [2] "float ywidth" [2]\n')
         pbrt.write('Sampler "halton" "integer pixelsamples" [' + str(data.GetInt32(IDC_PBRT_SAMPLES)) + ']\n')
-        
+
         # generate a temporary location and filename for the output image
         # TODO: Also make the filename random
         if len(dest) > 0:
@@ -1079,7 +1086,7 @@ class PbrtThread(c4d.threading.C4DThread):
         else:
             imageFilename = os.path.join(tempfile.gettempdir(), 'simple.exr')
         pbrt.write('Film "image" "string filename" ["' + imageFilename.replace('\\','\\\\') + '"] "integer xresolution" [' + str(int(renderDataBc[c4d.RDATA_XRES])) +'] "integer yresolution" [' + str(int(renderDataBc[c4d.RDATA_YRES])) + ']\n')
-        
+
         # search for a global illumination post effect to decide which surfaceintegrator to use
         renderVideoPost = renderData.GetFirstVideoPost()
         while renderVideoPost:
@@ -1103,7 +1110,7 @@ class PbrtThread(c4d.threading.C4DThread):
         defaultMaterialColor = doc[c4d.DOCUMENT_DEFAULTMATERIAL_COLOR]
         linearDefaultMaterialColor = c4d.utils.TransformColor(defaultMaterialColor, c4d.COLORSPACETRANSFORMATION_SRGB_TO_LINEAR)
         pbrt.write(indent + 'Material "uber" "rgb Kd" [' + str(linearDefaultMaterialColor.x) + ' ' + str(linearDefaultMaterialColor.y) + ' ' + str(linearDefaultMaterialColor.z) +'] "float index" [1.333]\n')
-        
+
         """
         define an export function to be passed to WalkObjectTree as callback
         TODO: should identify (physical) sky objects, bake them to a texture and define them as a light source
@@ -1113,7 +1120,7 @@ class PbrtThread(c4d.threading.C4DThread):
             # if a reason is found, still return true, because this doesn't mean the subtree shouldn't be traversed
             if not obj.GetDeformMode():
                 return True
-            
+
             renderMode = GetRenderModeRec(obj, rootObj)
             if renderMode == c4d.MODE_OFF:
                 return True
@@ -1135,7 +1142,7 @@ class PbrtThread(c4d.threading.C4DThread):
                 # if this object has been inserted as an object instance, we return False to notify WalkObjectTree that it should not traverse the hierarchy below this object
                 return False
 
-            # this needs to be checked after the check whether this is an instanced object, 
+            # this needs to be checked after the check whether this is an instanced object,
             # because generator objects also return True here
             if obj.GetBit(c4d.BIT_CONTROLOBJECT):
                 return True
@@ -1175,12 +1182,12 @@ class PbrtThread(c4d.threading.C4DThread):
                         global g_bakeDoc
                         g_bakeDoc = c4d.documents.IsolateObjects(parent.GetDocument(), [parent])
                         if c4d.documents.MergeDocument(doc=g_bakeDoc, name=os.path.join(os.path.dirname(__file__), "res", "pbrt-env-bake.c4d"), loadflags=c4d.SCENEFILTER_OBJECTS|c4d.SCENEFILTER_MATERIALS, thread=self.Get()):
-                            
+
                             #c4d.documents.SaveDocument(doc=g_bakeDoc, name='C:\\bakeDoc.c4d', saveflags=c4d.SAVEDOCUMENTFLAGS_0, format=c4d.FORMAT_C4DEXPORT)
-                            
+
                             global g_bakeTag
                             g_bakeTag = g_bakeDoc.GetFirstObject().GetFirstTag()
-                            
+
                             # set the output file in the bake tag, so the texture gets written to the correct location
                             bakeTagTexturename = os.path.join(os.path.dirname(pbrtFilename), "environment_")
                             g_bakeTag[c4d.BAKETEXTURE_NAME] = bakeTagTexturename
@@ -1279,9 +1286,9 @@ class PbrtThread(c4d.threading.C4DThread):
 
         indent = ""
         pbrt.write('WorldEnd\n')
-        
+
         pbrt.close()
-        
+
         return pbrtFilename, imageFilename
 
     def TerminateRenderer(self):
