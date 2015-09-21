@@ -36,7 +36,7 @@ MSG_PBRT_FINISHED               = 1000003
 MSG_PBRT_BAKETEXTURE            = 1000004
 
 logpipe = None
-g_bmp = None
+g_bmps = []
 g_thread = None
 
 # although we only need a reference to the bake tag we also save a global reference to the document
@@ -673,7 +673,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             specularTextureName = None
             if material[c4d.MATERIAL_USE_REFLECTION]:
                 # look for first layer (start with default which is 4)
-                for layerId in range(4, 10000):
+                for layerId in range(4, 10):
                     reflectDataId = c4d.REFLECTION_LAYER_LAYER_DATA + c4d.REFLECTION_LAYER_LAYER_SIZE *  layerId
                     # layer does not exist if this is undefined
                     if material[reflectDataId + c4d.REFLECTION_LAYER_MAIN_DISTRIBUTION] is None:
@@ -982,7 +982,7 @@ class PbrtThread(c4d.threading.C4DThread):
         self.doc.ExecutePasses(self.Get(), True, True, True, c4d.BUILDFLAGS_EXTERNALRENDERER)
 
         logger.info("Starting Export...")
-        pbrtFilename, imageFilename = self.ExportDocumentToPbrt(self.doc, self.data, self.path)
+        fileList = self.ExportDocumentToPbrt(self.doc, self.data, self.path)
 
         # if an environment file was created...
         if g_bakeTextureFile:
@@ -1008,23 +1008,32 @@ class PbrtThread(c4d.threading.C4DThread):
             g_bakeDoc = None
 
         # if an output filename is defined and the gui is set to start the rendering, go ahead
-        if imageFilename is not None and self.mode != IDC_PBRT_MODE_EXPORT:
-            global g_bmp
+        if self.mode != IDC_PBRT_MODE_EXPORT:
             logger.info("Start External Rendering...")
-            g_bmp = self.ExecuteRenderer(pbrtFilename, imageFilename)
+            for idx, filePair in enumerate(fileList):
+                pbrtFilename = filePair[0]
+                imageFilename = filePair[1]
+                global g_bmps
+                g_bmps.append(self.ExecuteRenderer(pbrtFilename, imageFilename))
 
         c4d.SpecialEventAdd(MSG_PBRT_FINISHED)
-
 
     #
     # export the current document as pbrt file, return the path of the resulting file and the output image file
     #
     def ExportDocumentToPbrt(self, doc, data, dest=""):
-        bc = doc.GetActiveRenderData().GetData()
-
+        result = []
         docFilename = doc.GetDocumentName()
         docPath = doc.GetDocumentPath()
         globalLightScale = data.GetFloat(IDC_PBRT_INTENSITY)
+
+        ctime = doc.GetTime() # Save current time
+
+        # Get FPS and frame range for rendering
+        rdata = doc.GetActiveRenderData()
+        fps = doc.GetFps()
+        start = rdata[c4d.RDATA_FRAMEFROM].GetFrame(fps)
+        until  = rdata[c4d.RDATA_FRAMETO].GetFrame(fps)
 
         # generate a temporary location and filename for the exported file image
         if len(dest) > 0:
@@ -1033,86 +1042,6 @@ class PbrtThread(c4d.threading.C4DThread):
             pbrtFilename = os.path.join(tempfile.gettempdir(), os.path.splitext(docFilename)[0] + ".pbrt")
 
         pbrtContentFilename = os.path.splitext(pbrtFilename)[0] + '_geometry' + os.path.splitext(pbrtFilename)[1]
-        pbrt = open(pbrtFilename, 'w')
-
-        #
-        # output scene options that are derived from the camera/viewport
-        #
-        camera = doc.GetRenderBaseDraw()
-        mi = camera.GetMi()
-        cameraObject = camera.GetSceneCamera(doc)
-        if (cameraObject):
-            mi = ~cameraObject.GetMg()
-        pbrt.write('Transform [' + str(mi.v1.x) + ' ' + str(mi.v1.y) + ' ' + str(mi.v1.z) + ' 0  ' + str(mi.v2.x) + ' ' + str(mi.v2.y) + ' ' + str(mi.v2.z) + ' 0  ' + str(mi.v3.x) + ' ' + str(mi.v3.y) + ' ' + str(mi.v3.z) + ' 0  ' + str(mi.off.x) +  ' ' + str(mi.off.y) + ' ' + str(mi.off.z) + ' 1]\n')
-
-        # we need render settings for dof, so they are initialized here already
-        renderData = doc.GetActiveRenderData()
-        renderDataBc = renderData.GetDataInstance()
-
-        # Pbrt expects the camera fov to be the spread angle of the viewing frustum along the narrower
-        # of the images width and height. CINEMA 4D provides both, so we just grab the smaller of the
-        # two.
-        cameraFov         = cameraObject[c4d.CAMERAOBJECT_FOV]
-        cameraVerticalFov = cameraObject[c4d.CAMERAOBJECT_FOV_VERTICAL]
-        if cameraFov > cameraVerticalFov:
-            cameraFov = cameraVerticalFov
-        if cameraObject == None:
-            pbrt.write('Camera "perspective" "float fov" [' + str(c4d.utils.Deg(cameraFov)) + ']\n')
-        else:
-            focalLength = cameraObject.GetDataInstance()[c4d.CAMERAOBJECT_TARGETDISTANCE]
-            lensRadius = 0 # default to pinhole camera
-            vp = renderData.GetFirstVideoPost()
-            while vp:
-                if vp.GetType() == 1023342 and not vp.GetBit(c4d.BIT_VPDISABLED) and vp.GetDataInstance()[c4d.VP_XMB_DOF]:
-                    # Formula to compute the lens diameter from f-stop and focal length from here:
-                    # http://www.punitsinha.com/resource/aperture_focal_length.html
-                    # consider document scale, because focal length is always given in mm
-                    # divide result by 2 because pbrt expects lens radius
-                    mmUnitScale = c4d.UnitScaleData()
-                    mmUnitScale.SetUnitScale(1, c4d.DOCUMENT_UNIT_MM)
-                    scale = c4d.utils.CalculateTranslationScale(mmUnitScale, doc.GetSettingsInstance(c4d.DOCUMENTSETTINGS_DOCUMENT)[c4d.DOCUMENT_DOCUNIT])
-                    lensRadius = (cameraObject.GetDataInstance()[c4d.CAMERA_FOCUS] * scale) / cameraObject.GetDataInstance()[c4d.CAMERAOBJECT_FNUMBER_VALUE] / 2
-                vp = vp.GetNext()
-            pbrt.write('Camera "perspective" "float fov" [' + str(c4d.utils.Deg(cameraFov)) + '] "float focaldistance" [' + str(focalLength) + '] "float lensradius" [' + str(lensRadius) + ']\n')
-
-        #
-        # output scene options that are derived from the render settings
-        #
-        pbrt.write('PixelFilter "mitchell" "float xwidth" [2] "float ywidth" [2]\n')
-        pbrt.write('Sampler "halton" "integer pixelsamples" [' + str(data.GetInt32(IDC_PBRT_SAMPLES)) + ']\n')
-
-        # generate a temporary location and filename for the output image
-        # TODO: Also make the filename random
-        if len(dest) > 0:
-            destFile = os.path.basename(dest)
-            imageFilename = os.path.splitext(destFile)[0] + '.exr'
-        else:
-            imageFilename = os.path.join(tempfile.gettempdir(), 'simple.exr')
-        pbrt.write('Film "image" "string filename" ["' + imageFilename.replace('\\','\\\\') + '"] "integer xresolution" [' + str(int(renderDataBc[c4d.RDATA_XRES])) +'] "integer yresolution" [' + str(int(renderDataBc[c4d.RDATA_YRES])) + ']\n')
-
-        # search for a global illumination post effect to decide which surfaceintegrator to use
-        renderVideoPost = renderData.GetFirstVideoPost()
-        while renderVideoPost:
-            if renderVideoPost.GetType() == 1021096 and not renderVideoPost.GetBit(c4d.BIT_VPDISABLED):
-                logger.info('Using Integrator "path" Due To Global Illumination Effect Present.')
-                pbrt.write('Integrator "path" "integer maxdepth" [5]\n')
-                break
-            renderVideoPost = renderVideoPost.GetNext()
-
-        if not renderVideoPost:
-            logger.info('Using Integrator "directlighting" Due To Global Illumination Effect Not Present.')
-            pbrt.write('Integrator "directlighting" "integer maxdepth" [5] "string strategy" "all"\n')
-
-        pbrt.write('WorldBegin\n')
-        indent = "\t"
-
-        #
-        # set default material
-        #
-        pbrt.write(indent + '# Default Material\n')
-        defaultMaterialColor = doc[c4d.DOCUMENT_DEFAULTMATERIAL_COLOR]
-        linearDefaultMaterialColor = c4d.utils.TransformColor(defaultMaterialColor, c4d.COLORSPACETRANSFORMATION_SRGB_TO_LINEAR)
-        pbrt.write(indent + 'Material "uber" "rgb Kd" [' + str(linearDefaultMaterialColor.x) + ' ' + str(linearDefaultMaterialColor.y) + ' ' + str(linearDefaultMaterialColor.z) +'] "float index" [1.333]\n')
 
         """
         define an export function to be passed to WalkObjectTree as callback
@@ -1233,26 +1162,150 @@ class PbrtThread(c4d.threading.C4DThread):
             return True
 
 
-        #
-        # define named objects
-        #
-        namedObjects = []
-        for obj in iter_all(doc):
-            if self.TestBreak():
-                return None, None
+        # generate one master file for each frame
+        for frame in xrange(start, until+1):
+            doc.SetTime(c4d.BaseTime(frame, fps))
+            self.doc.ExecutePasses(self.Get(), True, True, True, c4d.BUILDFLAGS_EXTERNALRENDERER)
 
-            # find visible render instance objects
-            if obj.GetType() == c4d.Oinstance:
-                if not obj[c4d.INSTANCEOBJECT_RENDERINSTANCE]:
-                    continue
+            pbrtFilePerFrame = pbrtFilename
 
-                if GetRenderModeRec(obj, None) != c4d.MODE_OFF:
-                    instancedObject = obj.GetDataInstance().GetObjectLink(c4d.INSTANCEOBJECT_LINK)
-                    if instancedObject and not FindNamedObject(instancedObject, namedObjects):
-                        # make the name of the named object
-                        objectName = SanitizeObjectName(instancedObject.GetName())
-                        # append to list of named objects
-                        namedObjects.append([instancedObject, objectName])
+            # generate a temporary location and filename for the output image
+            # TODO: Also make the filename random
+            if len(dest) > 0:
+                destFile = os.path.basename(dest)
+                imageFilename = os.path.splitext(destFile)[0] + '.exr'
+            else:
+                imageFilename = os.path.join(tempfile.gettempdir(), 'simple.exr')
+
+            # if multiple perspectives will be rendered append the frame number to the filenames
+            if start != until:
+                filename, ext = os.path.splitext(pbrtFilename)
+                pbrtFilePerFrame = filename + '_' + str(frame).zfill(4) + ext
+
+                filename, ext = os.path.splitext(imageFilename)
+                imageFilename = filename + '_' + str(frame).zfill(4) + ext
+
+            result.append((pbrtFilePerFrame, imageFilename))
+
+            pbrt = open(pbrtFilePerFrame, 'w')
+
+            #
+            # output scene options that are derived from the camera/viewport
+            #
+            camera = doc.GetRenderBaseDraw()
+            mi = camera.GetMi()
+            cameraObject = camera.GetSceneCamera(doc)
+            if (cameraObject):
+                mi = ~cameraObject.GetMg()
+            pbrt.write('Transform [' + str(mi.v1.x) + ' ' + str(mi.v1.y) + ' ' + str(mi.v1.z) + ' 0  ' + str(mi.v2.x) + ' ' + str(mi.v2.y) + ' ' + str(mi.v2.z) + ' 0  ' + str(mi.v3.x) + ' ' + str(mi.v3.y) + ' ' + str(mi.v3.z) + ' 0  ' + str(mi.off.x) +  ' ' + str(mi.off.y) + ' ' + str(mi.off.z) + ' 1]\n')
+
+            # Pbrt expects the camera fov to be the spread angle of the viewing frustum along the narrower
+            # of the images width and height. CINEMA 4D provides both, so we just grab the smaller of the
+            # two.
+            cameraFov         = cameraObject[c4d.CAMERAOBJECT_FOV]
+            cameraVerticalFov = cameraObject[c4d.CAMERAOBJECT_FOV_VERTICAL]
+            if cameraFov > cameraVerticalFov:
+                cameraFov = cameraVerticalFov
+            if cameraObject == None:
+                pbrt.write('Camera "perspective" "float fov" [' + str(c4d.utils.Deg(cameraFov)) + ']\n')
+            else:
+                focalLength = cameraObject.GetDataInstance()[c4d.CAMERAOBJECT_TARGETDISTANCE]
+                lensRadius = 0 # default to pinhole camera
+                vp = rdata.GetFirstVideoPost()
+                while vp:
+                    if vp.GetType() == 1023342 and not vp.GetBit(c4d.BIT_VPDISABLED) and vp.GetDataInstance()[c4d.VP_XMB_DOF]:
+                        # Formula to compute the lens diameter from f-stop and focal length from here:
+                        # http://www.punitsinha.com/resource/aperture_focal_length.html
+                        # consider document scale, because focal length is always given in mm
+                        # divide result by 2 because pbrt expects lens radius
+                        mmUnitScale = c4d.UnitScaleData()
+                        mmUnitScale.SetUnitScale(1, c4d.DOCUMENT_UNIT_MM)
+                        scale = c4d.utils.CalculateTranslationScale(mmUnitScale, doc.GetSettingsInstance(c4d.DOCUMENTSETTINGS_DOCUMENT)[c4d.DOCUMENT_DOCUNIT])
+                        lensRadius = (cameraObject.GetDataInstance()[c4d.CAMERA_FOCUS] * scale) / cameraObject.GetDataInstance()[c4d.CAMERAOBJECT_FNUMBER_VALUE] / 2
+                    vp = vp.GetNext()
+                pbrt.write('Camera "perspective" "float fov" [' + str(c4d.utils.Deg(cameraFov)) + '] "float focaldistance" [' + str(focalLength) + '] "float lensradius" [' + str(lensRadius) + ']\n')
+
+            #
+            # output scene options that are derived from the render settings
+            #
+            pbrt.write('PixelFilter "mitchell" "float xwidth" [2] "float ywidth" [2]\n')
+            pbrt.write('Sampler "halton" "integer pixelsamples" [' + str(data.GetInt32(IDC_PBRT_SAMPLES)) + ']\n')
+
+            pbrt.write('Film "image" "string filename" ["' + imageFilename.replace('\\','\\\\') + '"] "integer xresolution" [' + str(int(rdata[c4d.RDATA_XRES])) +'] "integer yresolution" [' + str(int(rdata[c4d.RDATA_YRES])) + ']\n')
+
+            # search for a global illumination post effect to decide which surfaceintegrator to use
+            renderVideoPost = rdata.GetFirstVideoPost()
+            while renderVideoPost:
+                if renderVideoPost.GetType() == 1021096 and not renderVideoPost.GetBit(c4d.BIT_VPDISABLED):
+                    logger.info('Using Integrator "path" Due To Global Illumination Effect Present.')
+                    pbrt.write('Integrator "path" "integer maxdepth" [5]\n')
+                    break
+                renderVideoPost = renderVideoPost.GetNext()
+
+            if not renderVideoPost:
+                logger.info('Using Integrator "directlighting" Due To Global Illumination Effect Not Present.')
+                pbrt.write('Integrator "directlighting" "integer maxdepth" [5] "string strategy" "all"\n')
+
+            pbrt.write('WorldBegin\n')
+            indent = "\t"
+
+            #
+            # set default material
+            #
+            pbrt.write(indent + '# Default Material\n')
+            defaultMaterialColor = doc[c4d.DOCUMENT_DEFAULTMATERIAL_COLOR]
+            linearDefaultMaterialColor = c4d.utils.TransformColor(defaultMaterialColor, c4d.COLORSPACETRANSFORMATION_SRGB_TO_LINEAR)
+            pbrt.write(indent + 'Material "uber" "rgb Kd" [' + str(linearDefaultMaterialColor.x) + ' ' + str(linearDefaultMaterialColor.y) + ' ' + str(linearDefaultMaterialColor.z) +'] "float index" [1.333]\n')
+
+            #
+            # define named objects
+            #
+            namedObjects = []
+            for obj in iter_all(doc):
+                if self.TestBreak():
+                    return None, None
+
+                # find visible render instance objects
+                if obj.GetType() == c4d.Oinstance:
+                    if not obj[c4d.INSTANCEOBJECT_RENDERINSTANCE]:
+                        continue
+
+                    if GetRenderModeRec(obj, None) != c4d.MODE_OFF:
+                        instancedObject = obj.GetDataInstance().GetObjectLink(c4d.INSTANCEOBJECT_LINK)
+                        if instancedObject and not FindNamedObject(instancedObject, namedObjects):
+                            # make the name of the named object
+                            objectName = SanitizeObjectName(instancedObject.GetName())
+                            # append to list of named objects
+                            namedObjects.append([instancedObject, objectName])
+
+            # in case of no light sources in the scene and the corresponding option being set,
+            # export default light
+            global g_nLightSourcesExported
+            if rdata[c4d.RDATA_AUTOLIGHT] and g_nLightSourcesExported == 0:
+                lightVector =  (~mi).MulV(-camera[c4d.BASEDRAW_DATA_LIGHTVECTOR])
+                pbrt.write(indent + 'LightSource "distant" "rgb L" [1 1 1] "point from" [0 0 0] "point to" [' + str(lightVector.x) + ' ' + str(lightVector.y) + ' ' + str(lightVector.z) + ']')
+                if not c4d.utils.CompareFloatTolerant(globalLightScale, 1.0):
+                    pbrt.write(' ' + makePbrtAttributeColor('scale', c4d.Vector(globalLightScale), False))
+                pbrt.write('\n')
+
+            pbrt.write(indent + 'Include "' + os.path.basename(pbrtContentFilename) + '"\n');
+
+            """
+            pbrt.write('AttributeBegin\n')
+            pbrt.write('  Rotate 135 1 0 0\n')
+            pbrt.write('  Texture "checks" "spectrum" "checkerboard" "float uscale" [4] "float vscale" [4] "rgb tex1" [1 0 0] "rgb tex2" [0 0 1]\n')
+            pbrt.write('  Material "matte" "texture Kd" "checks"\n')
+            pbrt.write('  Shape "disk" "float radius" [20] "float height" [-1]\n')
+            pbrt.write('AttributeEnd\n')
+            """
+
+            indent = ""
+            pbrt.write('WorldEnd\n')
+
+            pbrt.close()
+
+        # Set time back
+        doc.SetTime(ctime)
 
         # create separate file for content
         pbrtContent = open(pbrtContentFilename, 'w')
@@ -1266,33 +1319,7 @@ class PbrtThread(c4d.threading.C4DThread):
         WalkObjectTree(pbrtContent, doc, MyExportFunction, namedObjects)
         pbrtContent.close()
 
-        # in case of no light sources in the scene and the corresponding option being set,
-        # export default light
-        global g_nLightSourcesExported
-        if renderData[c4d.RDATA_AUTOLIGHT] and g_nLightSourcesExported == 0:
-            lightVector =  (~mi).MulV(-camera[c4d.BASEDRAW_DATA_LIGHTVECTOR])
-            pbrt.write(indent + 'LightSource "distant" "rgb L" [1 1 1] "point from" [0 0 0] "point to" [' + str(lightVector.x) + ' ' + str(lightVector.y) + ' ' + str(lightVector.z) + ']')
-            if not c4d.utils.CompareFloatTolerant(globalLightScale, 1.0):
-                pbrt.write(' ' + makePbrtAttributeColor('scale', c4d.Vector(globalLightScale), False))
-            pbrt.write('\n')
-
-        pbrt.write(indent + 'Include "' + os.path.basename(pbrtContentFilename) + '"\n');
-
-        """
-        pbrt.write('AttributeBegin\n')
-        pbrt.write('  Rotate 135 1 0 0\n')
-        pbrt.write('  Texture "checks" "spectrum" "checkerboard" "float uscale" [4] "float vscale" [4] "rgb tex1" [1 0 0] "rgb tex2" [0 0 1]\n')
-        pbrt.write('  Material "matte" "texture Kd" "checks"\n')
-        pbrt.write('  Shape "disk" "float radius" [20] "float height" [-1]\n')
-        pbrt.write('AttributeEnd\n')
-        """
-
-        indent = ""
-        pbrt.write('WorldEnd\n')
-
-        pbrt.close()
-
-        return pbrtFilename, imageFilename
+        return result
 
     def TerminateRenderer(self):
         if self.pbrtProcess is not None and self.pbrtProcess.poll() is None:
@@ -1480,15 +1507,18 @@ class ExportToPbrtDialog(c4d.gui.GeDialog):
 
         elif id == MSG_PBRT_FINISHED:
             global g_thread
+            global g_bmps
             if g_thread is not None:
                 logger.info("Finished")
-
-                if g_bmp is not None:
+                for bmp in g_bmps:
                     # it's not allowed to call ShowBitmap() in a thread
-                    c4d.bitmaps.ShowBitmap(g_bmp)
+                    c4d.bitmaps.ShowBitmap(bmp)
             else:
                 logger.error("Cancelled")
                 g_thread = None
+
+             # ShowBitmap copies the bitmaps so we can free them here
+            del g_bmps[:]
             self.UpdateGui()
             return True
 
