@@ -1158,12 +1158,13 @@ class PbrtThread(c4d.threading.C4DThread):
                 # this is a regular polygon object, export as such
                 logger.debug("Exporting Polygon Object: " + obj.GetName())
                 ExportPolygonObject(pbrt, obj, indent)
-
             return True
 
+        # named objects will be collected when exporting the first frame
+        namedObjects = []
 
         # generate one master file for each frame
-        for frame in xrange(start, until+1):
+        for idx, frame in enumerate(xrange(start, until+1)):
             doc.SetTime(c4d.BaseTime(frame, fps))
             self.doc.ExecutePasses(self.Get(), True, True, True, c4d.BUILDFLAGS_EXTERNALRENDERER)
 
@@ -1257,26 +1258,40 @@ class PbrtThread(c4d.threading.C4DThread):
             linearDefaultMaterialColor = c4d.utils.TransformColor(defaultMaterialColor, c4d.COLORSPACETRANSFORMATION_SRGB_TO_LINEAR)
             pbrt.write(indent + 'Material "uber" "rgb Kd" [' + str(linearDefaultMaterialColor.x) + ' ' + str(linearDefaultMaterialColor.y) + ' ' + str(linearDefaultMaterialColor.z) +'] "float index" [1.333]\n')
 
-            #
-            # define named objects
-            #
-            namedObjects = []
-            for obj in iter_all(doc):
-                if self.TestBreak():
-                    return None, None
+            # determine named objects and write content file once.
+            if idx == 0:
+                #
+                # define named objects
+                #
+                for obj in iter_all(doc):
+                    if self.TestBreak():
+                        return None, None
 
-                # find visible render instance objects
-                if obj.GetType() == c4d.Oinstance:
-                    if not obj[c4d.INSTANCEOBJECT_RENDERINSTANCE]:
-                        continue
+                    # find visible render instance objects
+                    if obj.GetType() == c4d.Oinstance:
+                        if not obj[c4d.INSTANCEOBJECT_RENDERINSTANCE]:
+                            continue
 
-                    if GetRenderModeRec(obj, None) != c4d.MODE_OFF:
-                        instancedObject = obj.GetDataInstance().GetObjectLink(c4d.INSTANCEOBJECT_LINK)
-                        if instancedObject and not FindNamedObject(instancedObject, namedObjects):
-                            # make the name of the named object
-                            objectName = SanitizeObjectName(instancedObject.GetName())
-                            # append to list of named objects
-                            namedObjects.append([instancedObject, objectName])
+                        if GetRenderModeRec(obj, None) != c4d.MODE_OFF:
+                            instancedObject = obj.GetDataInstance().GetObjectLink(c4d.INSTANCEOBJECT_LINK)
+                            if instancedObject and not FindNamedObject(instancedObject, namedObjects):
+                                # make the name of the named object
+                                objectName = SanitizeObjectName(instancedObject.GetName())
+                                # append to list of named objects
+                                namedObjects.append([instancedObject, objectName])
+
+                # it's important that this runs before the actual export, because here the exported lights
+                # get counted
+                pbrtContent = open(pbrtContentFilename, 'w')
+                for namedObject in namedObjects:
+                    pbrtContent.write('ObjectBegin "' + namedObject[1] + '"\n')
+                    logger.info("Exporting " + namedObject[0].GetName() + " as Instance...")
+                    WalkObjectTree(pbrtContent, namedObject[0], MyExportFunction, indent=indent, rootObj=namedObject[0])
+                    pbrtContent.write('ObjectEnd\n')
+
+                # main scene export run
+                WalkObjectTree(pbrtContent, doc, MyExportFunction, namedObjects)
+                pbrtContent.close()
 
             # in case of no light sources in the scene and the corresponding option being set,
             # export default light
@@ -1306,18 +1321,6 @@ class PbrtThread(c4d.threading.C4DThread):
 
         # Set time back
         doc.SetTime(ctime)
-
-        # create separate file for content
-        pbrtContent = open(pbrtContentFilename, 'w')
-        for namedObject in namedObjects:
-            pbrtContent.write('ObjectBegin "' + namedObject[1] + '"\n')
-            logger.info("Exporting " + namedObject[0].GetName() + " as Instance...")
-            WalkObjectTree(pbrtContent, namedObject[0], MyExportFunction, indent=indent, rootObj=namedObject[0])
-            pbrtContent.write('ObjectEnd\n')
-
-        # main scene export run
-        WalkObjectTree(pbrtContent, doc, MyExportFunction, namedObjects)
-        pbrtContent.close()
 
         return result
 
