@@ -524,14 +524,12 @@ def makePbrtAttribute(attrib, val, transform=True):
     elif attribType == str:
         return makePbrtAttributeTexture(attrib, val)
 
-def makePbrtTexture(filename, texAbbrev, texType='spectrum', useGamma=True):
+def makePbrtTexture(filename, texAbbrev, texType='color'):
     extension = os.path.splitext(filename)[1]
-    gamma = 1.0 if extension != '.exr' else 2.2
+    # note that starting with pbrt-v3 gamme correction is performed automatically based on the file extension
     if extension == '.exr' or extension == '.tga' or extension == '.pfm':
         bumpTextureName = os.path.splitext(os.path.basename(filename))[0] + '_' + texAbbrev
         bumTextureString = 'Texture "' + bumpTextureName + '" "' + texType + '" "imagemap" "string filename" "' + filename.replace('\\','\\\\') + '"'
-        if not c4d.utils.CompareFloatTolerant(gamma, 1.0):
-            bumTextureString += ' ' + makePbrtAttributeFloat('gamma', gamma)
         return bumpTextureName, bumTextureString
     else:
         raise RuntimeError('Texture file "' + os.path.basename(filename) + '" uses unsupported texture file format')
@@ -627,7 +625,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             innerAttributeBlock = True
 
             # translate material
-            baseColor = c4d.Vector(0, 0, 0)
+            baseColor = c4d.Vector(0.0)
             colorTextureName = None
             if material[c4d.MATERIAL_USE_COLOR]:
                 baseColor = material[c4d.MATERIAL_COLOR_COLOR] * material[c4d.MATERIAL_COLOR_BRIGHTNESS]
@@ -647,8 +645,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                 if alphaShader and alphaShader.GetType() == c4d.Xbitmap:
                     try:
                         alphaTextureFile = ManageTexture(alphaShader[c4d.BITMAPSHADER_FILENAME], doc, pbrtDir, None)
-                        # alpha is stored as linear by default so we ignore gamma here
-                        alphaTextureName, alphaTextureString = makePbrtTexture(alphaTextureFile, 'alpha', 'float', False)
+                        alphaTextureName, alphaTextureString = makePbrtTexture(alphaTextureFile, 'alpha', 'float')
                     except (RuntimeError, ValueError) as err:
                         logger.error(err)
                     else:
@@ -660,7 +657,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
                 if bumpShader and bumpShader.GetType() == c4d.Xbitmap:
                     try:
                         bumpTextureFile = ManageTexture(bumpShader[c4d.BITMAPSHADER_FILENAME], doc, pbrtDir, None)
-                        bumpTextureName, bumpTextureString = makePbrtTexture(bumpTextureFile, 'bump', 'float', False)
+                        bumpTextureName, bumpTextureString = makePbrtTexture(bumpTextureFile, 'bump', 'float')
                     except (RuntimeError, ValueError) as err:
                         logger.error(err)
                     else:
@@ -739,14 +736,16 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             # use glass material if transparency is used
             if not c4d.utils.CompareFloatTolerant(transmissivityColor.GetLength(), 0.0):
                 pbrt.write(indent + prefix +' "glass" ' + makePbrtAttributeFloat('index', ior))
-                pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
-                pbrt.write(' ' + makePbrtAttribute('Kt', transmissivityColor, False))
+                if material[c4d.MATERIAL_USE_REFLECTION]:
+	                pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
+	                pbrt.write(' ' + makePbrtAttribute('Kt', transmissivityColor, False))
             else:
                 pbrt.write(indent + prefix +' "uber" ' + makePbrtAttributeFloat('index', ior))
                 pbrt.write(' ' + makePbrtAttribute('Kd', baseColor if colorTextureName is None else colorTextureName))
-                pbrt.write(' ' + makePbrtAttribute('Ks', glossyColor if specularTextureName is None else specularTextureName))
-                pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
-                pbrt.write(' ' + makePbrtAttributeFloat('roughness', roughness))
+                if material[c4d.MATERIAL_USE_REFLECTION]:
+	                pbrt.write(' ' + makePbrtAttribute('Ks', glossyColor if specularTextureName is None else specularTextureName))
+	                pbrt.write(' ' + makePbrtAttribute('Kr', reflectivityColor if specularTextureName is None else specularTextureName))
+	                pbrt.write(' ' + makePbrtAttributeFloat('roughness', roughness))
                 #pbrt.write(' ' + makePbrtAttributeColor('opacity', c4d.Vector(1.0) - transmissivityColor, False))
 
             # all materials take a texture that can be used to specify a bump map
@@ -756,11 +755,11 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             if useTranslucency:
                 # create translucent material
                 pbrt.write('\n')
-                pbrt.write(indent + 'MakeNamedMaterial "' + material.GetName().lower() + '_back" "string type" "translucent" "rgb reflect" [0.0 0.0 0.0] "rgb transmit" [1.0 1.0 1.0] ')
+                pbrt.write(indent + 'MakeNamedMaterial "' + material.GetName().lower() + '_back" "string type" "translucent" ')
                 pbrt.write(' ' + makePbrtAttribute('Kd', baseColor if colorTextureName is None else colorTextureName))
                 # create mix material
                 pbrt.write('\n')
-                pbrt.write(indent + 'Material "mix" "color amount" [0.4 0.4 0.4] "string namedmaterial1" "' + material.GetName().lower() + '_front" "string namedmaterial2" "' + material.GetName().lower() + '_back"')
+                pbrt.write(indent + 'Material "mix" "color amount" [0.6 0.6 0.6] "string namedmaterial1" "' + material.GetName().lower() + '_front" "string namedmaterial2" "' + material.GetName().lower() + '_back"')
 
             pbrt.write('\n')
 
@@ -865,8 +864,8 @@ def ExportPolygonObject(pbrt, obj, indent=""):
         # close array
         pbrt.write(']')
         if alphaTextureName:
-            pbrt.write('"texture alpha" "' + alphaTextureName + '"')
-        pbrt.write('\n')
+            pbrt.write('" texture alpha" "' + alphaTextureName)
+        pbrt.write('"\n')
 
         if innerAttributeBlock:
             indent = indent[0:-1]
