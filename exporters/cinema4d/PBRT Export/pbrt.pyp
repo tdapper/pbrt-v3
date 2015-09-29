@@ -755,7 +755,7 @@ def ExportPolygonObject(pbrt, obj, indent=""):
             if useTranslucency:
                 # create translucent material
                 pbrt.write('\n')
-                pbrt.write(indent + 'MakeNamedMaterial "' + material.GetName().lower() + '_back" "string type" "translucent" ')
+                pbrt.write(indent + 'MakeNamedMaterial "' + material.GetName().lower() + '_back" "string type" "translucent" "rgb reflect" [0.0 0.0 0.0] "rgb transmit" [1.0 1.0 1.0] ')
                 pbrt.write(' ' + makePbrtAttribute('Kd', baseColor if colorTextureName is None else colorTextureName))
                 # create mix material
                 pbrt.write('\n')
@@ -864,8 +864,8 @@ def ExportPolygonObject(pbrt, obj, indent=""):
         # close array
         pbrt.write(']')
         if alphaTextureName:
-            pbrt.write('" texture alpha" "' + alphaTextureName)
-        pbrt.write('"\n')
+            pbrt.write('"texture alpha" "' + alphaTextureName + '"')
+        pbrt.write('\n')
 
         if innerAttributeBlock:
             indent = indent[0:-1]
